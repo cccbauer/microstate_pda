@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+*.npy
+*.nii
+*.nii.gz
+*.fif
+*.log
+logs/
+results/
+models/
+figures/
+microstates/
+*.egg-info/
+.env
