@@ -18,7 +18,7 @@ CONFOUND_ROOT  = "/projects/swglab/data/DMNELF/derivatives/fmriprep_24.1.1_wo_FS
 import os
 _user = os.environ.get("USER", "")
 if _user == "anitya":
-    _dropbox = Path("/Users/anitya/Dropbox (MIT)/00_2022/ResearchScientist"
+    _dropbox = Path("/Users/anitya/MIT Dropbox/Clemen Bauer/00_2022/ResearchScientist"
                     "/01_grants/01_R21-2021/Analysis/MNE")
 elif _user == "cccbauer":
     _dropbox = Path("/Users/cccbauer/Dropbox (MIT)/00_2022/ResearchScientist"
