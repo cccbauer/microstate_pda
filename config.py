@@ -70,6 +70,28 @@ RUN_MAP = {
     "feedback":  ["01", "02", "03", "04"],
 }
 
+# Subjects with simultaneous EEG + fMRI (complete acquisition)
+SUBJECTS_EEG_FMRI = [
+    "sub-dmnelf001", "sub-dmnelf004", "sub-dmnelf005", "sub-dmnelf006",
+    "sub-dmnelf007", "sub-dmnelf008", "sub-dmnelf009", "sub-dmnelf010",
+    "sub-dmnelf011", "sub-dmnelf1001",
+]
+
+# Subjects with EEG + fMRI but fewer runs (EEG and fMRI matched,
+# missing runs never acquired — complete in themselves)
+SUBJECTS_EEG_FMRI_PARTIAL = [
+    "sub-dmnelf1002",  # missing rest-02 EEG+fMRI
+    "sub-dmnelf1003",  # missing feedback-04 EEG+fMRI
+]
+
+# Subjects with fMRI only (no EEG acquired — R128 marker absent)
+SUBJECTS_FMRI_ONLY = [
+    "sub-dmnelf002", "sub-dmnelf003", "sub-dmnelf999",
+]
+
+# All EEG+fMRI subjects (complete + partial)
+SUBJECTS_EEG_FMRI_ALL = SUBJECTS_EEG_FMRI + SUBJECTS_EEG_FMRI_PARTIAL
+
 # ── EEG ────────────────────────────────────────────────────
 SFREQ          = 200        # Hz after resampling
 N_CHANNELS     = 31
