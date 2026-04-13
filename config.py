@@ -41,13 +41,27 @@ RESULTS_DIR    = LOCAL_BASE / "results"
 # ── Subjects ───────────────────────────────────────────────
 SUBJECTS = [
     "sub-dmnelf001",
+    "sub-dmnelf002",
+    "sub-dmnelf003",
     "sub-dmnelf004",
     "sub-dmnelf005",
     "sub-dmnelf006",
     "sub-dmnelf007",
     "sub-dmnelf008",
+    "sub-dmnelf009",
     "sub-dmnelf010",
+    "sub-dmnelf011",
+    "sub-dmnelf1001",
+    "sub-dmnelf1002",
+    "sub-dmnelf1003",
+    "sub-dmnelf999",
 ]
+
+# Runs with no raw data (never acquired) — excluded from pipeline
+MISSING_RUNS = {
+    "sub-dmnelf1002": [("rest", "02")],
+    "sub-dmnelf1003": [("feedback", "04")],
+}
 
 # ── Tasks / runs ───────────────────────────────────────────
 RUN_MAP = {

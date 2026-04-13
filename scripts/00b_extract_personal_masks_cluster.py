@@ -4,6 +4,10 @@
 Adapted from pineuro mask_extraction.py.
 Extract personalized DMN/CEN masks via CanICA + Yeo-17 correlation.
 fMRIPrep BOLD already in MNI space — no ANTs registration needed.
+
+CEN spatial constraint: skip components with midline posterior
+centroid (|x|<15mm AND y<-45mm) to exclude PCC/precuneus,
+which are DMN hubs that leak into ContA Yeo label.
 """
 import sys
 sys.stdout.reconfigure(line_buffering=True)
@@ -32,6 +36,11 @@ N_VOXELS_MASK = 2000 # top N voxels per mask
 # CEN: ContA(11)=lat frontoparietal, ContB(12)=frontoparietal
 YEO_DMN_LABELS = [14, 15, 16]
 YEO_CEN_LABELS = [11, 12]
+
+# CEN spatial constraint: exclude midline posterior components
+# PCC/precuneus signature: |x| < 15mm AND y < -45mm
+CEN_EXCL_X = 15.0
+CEN_EXCL_Y = -45.0
 
 # ── Load atlases ──────────────────────────────────────
 print("=" * 55)
@@ -64,33 +73,30 @@ def resample_to(source_img, target_img, interpolation="nearest"):
             interpolation=interpolation
         )
 
-def spatial_corr_masked(components, ref_mask_flat, brain_mask_flat):
+def spatial_corr_masked(X_masked, ref_mask_flat):
     """
     Vectorized spatial correlation of all ICA components
-    against a binary reference map, computed inside brain mask only.
+    against a binary reference map, inside brain mask only.
     Adapted from pineuro spatial_correlation().
-    components:     (V, n_comp) — component values inside brain mask
-    ref_mask_flat:  (V,)        — binary reference network inside brain mask
-    Returns: (n_comp,) correlation vector
+    X_masked:       (V, n_comp)
+    ref_mask_flat:  (V,)
+    Returns: (n_comp,)
     """
-    # Demean components across voxels
-    X_dm   = components - components.mean(axis=0, keepdims=True)
-    x_norm = np.sqrt((X_dm**2).sum(axis=0))            # (n_comp,)
-    # Demean reference
+    X_dm   = X_masked - X_masked.mean(axis=0, keepdims=True)
+    x_norm = np.sqrt((X_dm**2).sum(axis=0))
     y      = ref_mask_flat.astype(np.float64)
     y_dm   = y - y.mean()
     y_norm = np.sqrt((y_dm**2).sum())
     if y_norm < 1e-10:
-        return np.zeros(components.shape[1])
-    # Single matrix multiply: (V, n_comp).T @ (V,) = (n_comp,)
-    num  = X_dm.T @ y_dm
+        return np.zeros(X_masked.shape[1])
+    num   = X_dm.T @ y_dm
     denom = x_norm * y_norm
     denom[denom < 1e-10] = 1e-10
     return num / denom
 
 def zscore_combine(c1, c2):
     """
-    Z-score each component map then average.
+    Z-score each component then average.
     Adapted from pineuro combine_ica_components().
     Ensures equal contribution regardless of value range.
     """
@@ -101,8 +107,8 @@ def zscore_combine(c1, c2):
 
 def top_n_mask(component, n_voxels, affine):
     """Binary mask of top N positive voxels."""
-    flat   = component.ravel()
-    pos    = np.where(flat > 0)[0]
+    flat = component.ravel()
+    pos  = np.where(flat > 0)[0]
     if len(pos) <= n_voxels:
         binary = (flat > 0).astype(np.uint8).reshape(component.shape)
     else:
@@ -112,11 +118,30 @@ def top_n_mask(component, n_voxels, affine):
         binary = result.reshape(component.shape)
     return nib.Nifti1Image(binary, affine)
 
+def get_centroid_mni(ic, components, aff, n_top=500):
+    """MNI centroid of the top N voxels of component ic."""
+    comp   = components[..., ic]
+    thresh = np.sort(np.abs(comp).ravel())[-n_top]
+    xi, yi, zi = np.where(np.abs(comp) >= thresh)
+    cx = float(xi.mean() * aff[0, 0] + aff[0, 3])
+    cy = float(yi.mean() * aff[1, 1] + aff[1, 3])
+    cz = float(zi.mean() * aff[2, 2] + aff[2, 3])
+    return cx, cy, cz
+
+def is_midline_posterior(ic, components, aff):
+    """
+    Returns True if component centroid is midline posterior.
+    Flags PCC/precuneus (DMN hubs leaking into ContA Yeo label).
+    Criterion: |x| < 15mm AND y < -45mm
+    """
+    cx, cy, cz = get_centroid_mni(ic, components, aff)
+    return abs(cx) < CEN_EXCL_X and cy < CEN_EXCL_Y
+
 def check_laterality(mask_img, label):
     data = mask_img.get_fdata()
     aff  = mask_img.affine
     xi, yi, zi = np.where(data > 0)
-    mx = xi * aff[0,0] + aff[0,3]
+    mx = xi * aff[0, 0] + aff[0, 3]
     print("  " + label + ":"
           + "  L=" + str(int((mx < 0).sum()))
           + "  R=" + str(int((mx > 0).sum())))
@@ -162,7 +187,6 @@ for subject in SUBJECTS:
         print("  MISSING BOLD: " + bold_name)
         continue
 
-    # Fall back to anat brain mask if func mask missing
     if not mask_path.exists():
         anat_mask = (FMRIPREP_ROOT / subject / "ses-dmnelf"
                      / "anat" / (subject
@@ -173,9 +197,9 @@ for subject in SUBJECTS:
             print("  Using anat brain mask")
         else:
             mask_path = None
-            print("  WARNING: no brain mask found, CanICA unmasked")
+            print("  WARNING: no brain mask found")
 
-    print("  BOLD:  " + bold_name)
+    print("  BOLD: " + bold_name)
 
     # ── CanICA with brain mask ─────────────────────────
     from nilearn.decomposition import CanICA
@@ -195,10 +219,10 @@ for subject in SUBJECTS:
     canica.fit([str(bold_path)])
     components_img = canica.components_img_
     components     = components_img.get_fdata()  # (x,y,z,n_comp)
+    aff            = components_img.affine
     print("  Components shape: " + str(components.shape))
 
     # ── Resample Yeo to BOLD space ────────────────────
-    # Build combined DMN and CEN Yeo reference masks
     yeo_dmn = np.zeros_like(yeo_data, dtype=np.float32)
     yeo_cen = np.zeros_like(yeo_data, dtype=np.float32)
     for l in YEO_DMN_LABELS:
@@ -215,64 +239,102 @@ for subject in SUBJECTS:
         components_img
     ).get_fdata())
 
+    print("  Yeo DMN voxels in BOLD space: "
+          + str(int((yeo_dmn_r > 0).sum())))
+    print("  Yeo CEN voxels in BOLD space: "
+          + str(int((yeo_cen_r > 0).sum())))
+
     # ── Brain mask for correlation ─────────────────────
-    # Use union of nonzero voxels across components as brain mask
     brain_mask = (np.abs(components).sum(axis=-1) > 0)
     V = brain_mask.sum()
     print("  Brain mask voxels: " + str(int(V)))
 
-    # Flatten to (V, n_comp) inside brain mask
-    X_masked       = components[brain_mask]          # (V, n_comp)
-    yeo_dmn_masked = yeo_dmn_r[brain_mask]           # (V,)
-    yeo_cen_masked = yeo_cen_r[brain_mask]           # (V,)
+    X_masked       = components[brain_mask]    # (V, n_comp)
+    yeo_dmn_masked = yeo_dmn_r[brain_mask]     # (V,)
+    yeo_cen_masked = yeo_cen_r[brain_mask]     # (V,)
 
     # ── Vectorized spatial correlations ───────────────
-    corr_dmn = spatial_corr_masked(X_masked, yeo_dmn_masked, brain_mask.ravel())
-    corr_cen = spatial_corr_masked(X_masked, yeo_cen_masked, brain_mask.ravel())
-    n_comp   = components.shape[-1]
+    corr_dmn = spatial_corr_masked(X_masked, yeo_dmn_masked)
+    corr_cen = spatial_corr_masked(X_masked, yeo_cen_masked)
 
     dmn_sorted = np.abs(corr_dmn).argsort()[::-1]
     cen_sorted = np.abs(corr_cen).argsort()[::-1]
 
     print("  Top 5 DMN correlations:")
     for i in dmn_sorted[:5]:
+        cx, cy, cz = get_centroid_mni(int(i), components, aff)
         print("    IC" + str(i)
-              + "  r=" + "{:+.3f}".format(corr_dmn[i]))
+              + "  r=" + "{:+.3f}".format(corr_dmn[i])
+              + "  ctr=(" + str(round(cx,0))
+              + "," + str(round(cy,0))
+              + "," + str(round(cz,0)) + ")")
+
     print("  Top 5 CEN correlations:")
     for i in cen_sorted[:5]:
+        cx, cy, cz = get_centroid_mni(int(i), components, aff)
+        midline = is_midline_posterior(int(i), components, aff)
+        flag = " [SKIP:PCC]" if midline else ""
         print("    IC" + str(i)
-              + "  r=" + "{:+.3f}".format(corr_cen[i]))
+              + "  r=" + "{:+.3f}".format(corr_cen[i])
+              + "  ctr=(" + str(round(cx,0))
+              + "," + str(round(cy,0))
+              + "," + str(round(cz,0)) + ")"
+              + flag)
 
-    # ── Select top 2 components per network ──────────
+    # ── Select DMN: top 2 by absolute correlation ─────
     dmn_comp  = int(dmn_sorted[0])
     dmn_comp2 = int(dmn_sorted[1])
     used      = {dmn_comp, dmn_comp2}
 
+    # ── Select CEN: top 2 excluding midline posterior ─
     cen_comp  = None
     cen_comp2 = None
+    skipped   = []
     for ic in cen_sorted:
         ic = int(ic)
         if ic in used:
+            continue
+        if is_midline_posterior(ic, components, aff):
+            cx, cy, cz = get_centroid_mni(ic, components, aff)
+            skipped.append("IC" + str(ic)
+                           + " (x=" + str(round(cx,1))
+                           + " y=" + str(round(cy,1)) + ")")
             continue
         if cen_comp is None:
             cen_comp = ic
             used.add(ic)
         elif cen_comp2 is None:
             cen_comp2 = ic
+            used.add(ic)
             break
 
-    print("  Selected DMN IC1: " + str(dmn_comp)
+    if skipped:
+        print("  Skipped PCC components: " + ", ".join(skipped))
+
+    # Fallback if constraint filtered too aggressively
+    if cen_comp is None or cen_comp2 is None:
+        print("  WARNING: fallback — relaxing spatial constraint")
+        for ic in cen_sorted:
+            ic = int(ic)
+            if ic not in used:
+                if cen_comp is None:
+                    cen_comp = ic
+                    used.add(ic)
+                elif cen_comp2 is None:
+                    cen_comp2 = ic
+                    used.add(ic)
+                    break
+
+    print("  Selected DMN IC1: IC" + str(dmn_comp)
           + "  r=" + "{:+.3f}".format(corr_dmn[dmn_comp]))
-    print("  Selected DMN IC2: " + str(dmn_comp2)
+    print("  Selected DMN IC2: IC" + str(dmn_comp2)
           + "  r=" + "{:+.3f}".format(corr_dmn[dmn_comp2]))
-    print("  Selected CEN IC1: " + str(cen_comp)
+    print("  Selected CEN IC1: IC" + str(cen_comp)
           + "  r=" + "{:+.3f}".format(corr_cen[cen_comp]))
-    print("  Selected CEN IC2: " + str(cen_comp2)
+    print("  Selected CEN IC2: IC" + str(cen_comp2)
           + "  r=" + "{:+.3f}".format(corr_cen[cen_comp2]))
 
     # ── Sign-correct then z-score combine ─────────────
-    # Sign correction: flip if anti-correlated with Yeo
-    # Z-score before combining: equal contribution (pineuro)
     dmn_c1 = components[..., dmn_comp].copy()
     dmn_c2 = components[..., dmn_comp2].copy()
     cen_c1 = components[..., cen_comp].copy()
@@ -295,9 +357,8 @@ for subject in SUBJECTS:
     cen_combined = zscore_combine(cen_c1, cen_c2)
 
     # ── Threshold to top N voxels ─────────────────────
-    affine   = components_img.affine
-    dmn_mask = top_n_mask(dmn_combined, N_VOXELS_MASK, affine)
-    cen_mask = top_n_mask(cen_combined, N_VOXELS_MASK, affine)
+    dmn_mask = top_n_mask(dmn_combined, N_VOXELS_MASK, aff)
+    cen_mask = top_n_mask(cen_combined, N_VOXELS_MASK, aff)
 
     check_laterality(dmn_mask, "DMN")
     check_laterality(cen_mask, "CEN")
@@ -308,8 +369,8 @@ for subject in SUBJECTS:
         interpolation="linear"
     ).get_fdata()  # (x,y,z,64)
 
-    dmn_flat = dmn_mask.get_fdata().ravel()
-    cen_flat = cen_mask.get_fdata().ravel()
+    dmn_flat    = dmn_mask.get_fdata().ravel()
+    cen_flat    = cen_mask.get_fdata().ravel()
     dmn_weights = np.zeros(64)
     cen_weights = np.zeros(64)
     for p in range(64):
@@ -330,12 +391,13 @@ for subject in SUBJECTS:
     print("  Top CEN parcels (personal): " + str(cen_top6))
     print("  Group CEN parcels:          [4,31,47,48,50,51]")
 
-    # ── Save ──────────────────────────────────────────
+    # ── Save masks ────────────────────────────────────
     nib.save(dmn_mask, str(out_dmn))
     nib.save(cen_mask, str(out_cen))
     print("  Saved: " + str(out_dmn.name))
     print("  Saved: " + str(out_cen.name))
 
+    # ── Save weights JSON ─────────────────────────────
     weights_dict = {
         "subject":             subject,
         "dmn_weights":         dmn_weights.tolist(),
@@ -356,6 +418,9 @@ for subject in SUBJECTS:
         "n_ica_components":    N_COMPONENTS,
         "yeo_dmn_labels":      YEO_DMN_LABELS,
         "yeo_cen_labels":      YEO_CEN_LABELS,
+        "cen_excl_x":          CEN_EXCL_X,
+        "cen_excl_y":          CEN_EXCL_Y,
+        "cen_skipped_pcc":     skipped,
     }
     with open(str(out_weights), "w") as f:
         json.dump(weights_dict, f, indent=2)
