@@ -263,7 +263,7 @@ def preprocess_run(subject, task, run, overwrite=False):
         print("  Montage set")
     except Exception as e:
         print("  Montage failed: " + str(e))
-        
+
     # ── 9. ICA ────────────────────────────────────────────
     from mne.preprocessing import ICA
     n_eeg        = len(mne.pick_types(raw_filtered.info, eeg=True))
@@ -403,7 +403,7 @@ def _save_qc_raw(raw, eeg_ch_names, cardiac_events,
 
 def _save_qc_final(raw_before, raw_after,
                    qc_dir, subject, session, task, run, cardiac_freq):
-    fig, axes = plt.subplots(3, 1, figsize=(16, 12))
+    fig, axes = plt.subplots(5, 1, figsize=(20, 20))
 
     # Panel 1: PSD comparison
     psd_b = raw_before.compute_psd(fmax=50, picks='eeg', verbose=False)
@@ -414,37 +414,67 @@ def _save_qc_final(raw_before, raw_after,
                      'g-',  linewidth=1.5, label='After')
     axes[0].axvspan(cardiac_freq - 0.2, cardiac_freq + 0.2,
                     alpha=0.15, color='red', label='cardiac')
-    axes[0].set_title(subject + " task-" + task + " run-" + run + " — Final PSD")
+    axes[0].set_title(subject + " task-" + task + " run-" + run + " — PSD comparison")
     axes[0].set_xlabel("Frequency (Hz)")
     axes[0].set_ylabel("Power (V²/Hz)")
     axes[0].legend()
     axes[0].grid(True, alpha=0.3)
 
-    # Panel 2: time traces before
-    sfreq  = raw_before.info['sfreq']
-    t_mask = (raw_before.times >= 30) & (raw_before.times <= 50)
-    d_b    = raw_before.get_data(picks='eeg')[:, t_mask]
-    t_plot = raw_before.times[t_mask]
-    offset = 0
-    for i in range(min(15, d_b.shape[0])):
-        axes[1].plot(t_plot, d_b[i] * 1e6 + offset,
-                     linewidth=0.4, color='steelblue', alpha=0.7)
-        offset += 150
-    axes[1].set_title("Before (30-50s, first 15 channels)")
-    axes[1].set_ylabel("Channels (offset µV)")
+    # Panel 2: whole run RMS before
+    sfreq   = raw_before.info['sfreq']
+    d_b     = raw_before.get_data(picks='eeg')
+    rms_b   = np.sqrt((d_b**2).mean(axis=0))
+    t_b     = raw_before.times
+    axes[1].plot(t_b, rms_b * 1e6, 'b-', linewidth=0.5, alpha=0.8)
+    axes[1].set_title("Whole run RMS before preprocessing")
+    axes[1].set_ylabel("RMS (µV)")
+    axes[1].set_xlabel("Time (s)")
+    axes[1].grid(True, alpha=0.3)
+    # Mark BAD annotations
+    for ann in raw_before.annotations:
+        if 'BAD' in ann['description']:
+            axes[1].axvspan(ann['onset'],
+                            ann['onset'] + ann['duration'],
+                            alpha=0.3, color='red',
+                            label=ann['description'])
 
-    # Panel 3: time traces after
-    t_mask2 = (raw_after.times >= 30) & (raw_after.times <= 50)
-    d_a     = raw_after.get_data(picks='eeg')[:, t_mask2]
-    t_plot2 = raw_after.times[t_mask2]
-    offset  = 0
-    for i in range(min(15, d_a.shape[0])):
-        axes[2].plot(t_plot2, d_a[i] * 1e6 + offset,
-                     linewidth=0.4, color='green', alpha=0.7)
-        offset += 150
-    axes[2].set_title("After (30-50s, first 15 channels)")
-    axes[2].set_ylabel("Channels (offset µV)")
+    # Panel 3: whole run RMS after
+    d_a   = raw_after.get_data(picks='eeg')
+    rms_a = np.sqrt((d_a**2).mean(axis=0))
+    t_a   = raw_after.times
+    axes[2].plot(t_a, rms_a * 1e6, 'g-', linewidth=0.5, alpha=0.8)
+    axes[2].set_title("Whole run RMS after preprocessing")
+    axes[2].set_ylabel("RMS (µV)")
     axes[2].set_xlabel("Time (s)")
+    axes[2].grid(True, alpha=0.3)
+    axes[2].set_ylim(axes[1].get_ylim())  # same y scale for comparison
+
+    # Panel 4: whole run traces before (first 8 channels, decimated)
+    decim = max(1, int(sfreq / 50))  # decimate to ~50Hz for plotting
+    d_b_dec = d_b[:8, ::decim]
+    t_b_dec = t_b[::decim]
+    offset  = 0
+    for i in range(min(8, d_b_dec.shape[0])):
+        axes[3].plot(t_b_dec, d_b_dec[i] * 1e6 + offset,
+                     linewidth=0.3, color='steelblue', alpha=0.7)
+        offset += 200
+    axes[3].set_title("Whole run — before (first 8 channels)")
+    axes[3].set_ylabel("Channels (offset µV)")
+    axes[3].set_xlabel("Time (s)")
+
+    # Panel 5: whole run traces after (first 8 channels, decimated)
+    sfreq_a  = raw_after.info['sfreq']
+    decim_a  = max(1, int(sfreq_a / 50))
+    d_a_dec  = d_a[:8, ::decim_a]
+    t_a_dec  = t_a[::decim_a]
+    offset   = 0
+    for i in range(min(8, d_a_dec.shape[0])):
+        axes[4].plot(t_a_dec, d_a_dec[i] * 1e6 + offset,
+                     linewidth=0.3, color='green', alpha=0.7)
+        offset += 200
+    axes[4].set_title("Whole run — after (first 8 channels)")
+    axes[4].set_ylabel("Channels (offset µV)")
+    axes[4].set_xlabel("Time (s)")
 
     plt.tight_layout()
     fname = qc_dir / (subject + "_ses-dmnelf_task-" + task
