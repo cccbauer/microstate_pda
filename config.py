@@ -108,3 +108,6 @@ TRAIN_TASK     = "feedback"
 TEST_TASKS     = ["shortrest", "feedback"]
 Z_SCORE_FEATS  = True
 Z_SCORE_TARGET = True
+
+# EEG filename suffix for minimally preprocessed files
+EEG_RAW_SUFFIX = "_desc-bvaAC1kHz_eeg.edf"
