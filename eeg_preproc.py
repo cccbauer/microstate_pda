@@ -33,8 +33,7 @@ from pathlib import Path
 
 # ── Paths ──────────────────────────────────────────────────────────────────
 EEG_RAW_ROOT = Path("/projects/swglab/data/DMNELF/rawdata_eeg")
-EEG_OUT_ROOT = Path("/projects/swglab/data/DMNELF/analysis/MNE/bids/derivatives/preprocessed")
-
+EEG_OUT_ROOT = Path("/projects/swglab/data/DMNELF/derivatives/eeg_preprocessed")
 SUBJECTS_EEG = [
     "sub-dmnelf001", "sub-dmnelf004", "sub-dmnelf005", "sub-dmnelf006",
     "sub-dmnelf007", "sub-dmnelf008", "sub-dmnelf009", "sub-dmnelf010",
@@ -242,7 +241,8 @@ def preprocess_run(subject, task, run, overwrite=False):
                     end   = onset + n_tmpl
                     if onset >= 0 and end <= raw_data.shape[1]:
                         raw_data[:, onset:end] -= template_data
-                raw_filtered._data[mne.pick_types(raw_filtered.info, eeg=True)] = raw_data
+                eeg_picks = mne.pick_types(raw_filtered.info, eeg=True)
+                raw_filtered._data[eeg_picks, :] = raw_data
                 print("  BCG correction applied (" + str(len(epochs_bcg)) + " epochs)")
             else:
                 print("  BCG skipped (too few epochs: " + str(len(epochs_bcg)) + ")")
@@ -256,6 +256,14 @@ def preprocess_run(subject, task, run, overwrite=False):
         print("  Downsampling to " + str(SFREQ_TARGET) + "Hz...")
         raw_filtered.resample(SFREQ_TARGET, verbose=False)
 
+# Set montage for ICLabel
+    try:
+        montage = mne.channels.make_standard_montage('standard_1020')
+        raw_filtered.set_montage(montage, on_missing='ignore', verbose=False)
+        print("  Montage set")
+    except Exception as e:
+        print("  Montage failed: " + str(e))
+        
     # ── 9. ICA ────────────────────────────────────────────
     from mne.preprocessing import ICA
     n_eeg        = len(mne.pick_types(raw_filtered.info, eeg=True))
