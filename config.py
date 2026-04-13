@@ -13,6 +13,7 @@ CLUSTER_BASE   = "/projects/swglab/data/DMNELF/analysis/MNE/jupyter/microstate_p
 EEG_ROOT       = "/projects/swglab/data/DMNELF/analysis/MNE/bids/derivatives/preprocessed"
 DIFUMO_ROOT    = "/projects/swglab/data/DMNELF/analysis/MNE/jupyter/neurobolt/difumo_timeseries"
 CONFOUND_ROOT  = "/projects/swglab/data/DMNELF/derivatives/fmriprep_24.1.1_wo_FS"
+EEG_PREP_ROOT = Path("/projects/swglab/data/DMNELF/derivatives/eeg_preprocessed")
 
 # ── Local paths (machine-agnostic) ─────────────────────────
 import os
@@ -21,7 +22,7 @@ if _user == "anitya":
     _dropbox = Path("/Users/anitya/MIT Dropbox/Clemen Bauer/00_2022/ResearchScientist"
                     "/01_grants/01_R21-2021/Analysis/MNE")
 elif _user == "cccbauer":
-    _dropbox = Path("/Users/cccbauer/Dropbox (MIT)/00_2022/ResearchScientist"
+    _dropbox = Path("/Users/cccbauer/MIT Dropbox/Clemen Bauer/00_2022/ResearchScientist"
                     "/01_grants/01_R21-2021/Analysis/MNE")
 else:
     _dropbox = Path.home() / "microstate_pda_v3"
