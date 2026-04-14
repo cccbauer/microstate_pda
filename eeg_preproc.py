@@ -283,11 +283,13 @@ def preprocess_run(subject, task, run, overwrite=False, sfreq_target=250.0):
 
     ica = ICA(
         n_components=n_components,
-        method='fastica',
+        method='picard',
         random_state=42,
         max_iter=500,
+        fit_params=dict(ortho=False, extended=True),
         verbose=False
     )
+
     ica.fit(raw_filtered, picks='eeg',
             reject_by_annotation=True, verbose=False)
 
@@ -304,32 +306,34 @@ def preprocess_run(subject, task, run, overwrite=False, sfreq_target=250.0):
         print("  ICLabel failed: " + str(e))
         labels = None
 
-    # Cardiac correlation
+    # Cardiac detection via CTPS (same as Mexico pipeline)
     cardiac_components = []
-    if ecg_ch_name is not None and cardiac_events is not None:
+    if ecg_ch_name is not None:
         try:
-            from scipy import signal as scipy_signal
-            sources    = ica.get_sources(raw_filtered).get_data()
-            ecg_signal = raw_filtered.get_data(picks=ecg_ch_name)[0]
-            sfreq_f    = raw_filtered.info['sfreq']
-            for idx in range(n_components):
-                freqs_w, psd = scipy_signal.welch(
-                    sources[idx], fs=sfreq_f, nperseg=1024, noverlap=512
-                )
-                c_idx  = np.argmin(np.abs(freqs_w - cardiac_freq))
-                c2_idx = np.argmin(np.abs(freqs_w - 2*cardiac_freq))
-                mean_p = np.mean(psd[(freqs_w > 0.5) & (freqs_w < 10)])
-                if mean_p > 0 and (psd[c_idx] > 3*mean_p or psd[c2_idx] > 3*mean_p):
-                    min_len = min(len(sources[idx]), len(ecg_signal))
-                    corr = abs(np.corrcoef(
-                        sources[idx][:min_len], ecg_signal[:min_len]
-                    )[0, 1])
-                    if corr > 0.3:
-                        cardiac_components.append(idx)
+            ecg_epochs_ica = mne.preprocessing.create_ecg_epochs(
+                raw_filtered,
+                ch_name=ecg_ch_name,
+                verbose=False
+            )
+            cardiac_components, ecg_scores = ica.find_bads_ecg(
+                ecg_epochs_ica,
+                ch_name=ecg_ch_name,
+                method='ctps',
+                threshold=0.5,
+                verbose=False
+            )
+            cardiac_components = [int(i) for i in cardiac_components]
             if cardiac_components:
-                print("  Cardiac ICA: " + str(cardiac_components))
+                print("  Cardiac CTPS: " + str(cardiac_components))
+            else:
+                # Fall back to correlation if CTPS finds nothing
+                best = int(np.argmax(np.abs(ecg_scores)))
+                if abs(ecg_scores[best]) > 0.2:
+                    cardiac_components = [best]
+                    print("  Cardiac fallback (best corr): IC" + str(best)
+                          + "  score=" + str(round(float(ecg_scores[best]), 3)))
         except Exception as e:
-            print("  Cardiac ICA detection failed: " + str(e))
+            print("  Cardiac CTPS failed: " + str(e))
 
     # EOG detection using Fp1/Fp2 as proxy
     eog_components = []
@@ -589,8 +593,7 @@ def main():
         print("=" * 60)
 
     elif args.subject and args.task and args.run:
-        preprocess_run(args.subject, args.task, args.run, args.overwrite)
-
+        preprocess_run(args.subject, args.task, args.run, args.overwrite, args.sfreq)
     else:
         parser.print_help()
 
