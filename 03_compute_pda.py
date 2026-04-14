@@ -1,15 +1,23 @@
 # 03_compute_pda.py
-# Run locally: python 03_compute_pda.py [--sfreq 250|500]
+# Run locally: python 03_compute_pda.py [--overwrite]
 # Deploys cluster script, submits SLURM job.
 #
 # What it does on the cluster:
 #   For each subject x task x run:
-#   1. Load DiFuMo-64 TSV (66 columns including DMN_personal, CEN_personal)
+#   1. Load DiFuMo-64 TSV (68 columns including DMN_personal, CEN_personal)
 #   2. Baseline z-score each parcel (first 25 volumes, matching MURFI)
 #   3. Compute two PDA variants:
 #      - PDA_group:    mean(CEN_group_z) - mean(DMN_group_z)
 #      - PDA_personal: CEN_personal_z - DMN_personal_z
 #   4. Save (n_vols,) float32 arrays
+#
+# DiFuMo-64 group indices (0-based, verified vs labels_64_dictionary.csv):
+#   DMN: [3,6,29,35,38,58,60,61]
+#     PCC(3), STS/angular(6), sup rostral(29), angular sup(35),
+#     dmPFC(38), angular inf(58), MTG(60), sup frontal(61)
+#   CEN: [4,31,47,48,50,51]
+#     parieto-occipital(4), IPS(31), IPS-RH(47), IFsulcus(48),
+#     MFG(50), IFG(51)
 #
 # Output:
 #   targets/{subject}_task-{task}_run-{run}_pda_group.npy
@@ -19,28 +27,24 @@ import argparse
 import py_compile
 import time
 from pathlib import Path
-from utils import run_ssh, scp_to, make_cluster_dirs
+from utils import run_ssh, scp_to
 from config import (
     CLUSTER_BASE, SLURM_ACCOUNT, PYTHON,
     SUBJECTS_EEG_FMRI_ALL, LOCAL_BASE,
-    MISSING_RUNS,
-    DMN_IDX, CEN_IDX
+    MISSING_RUNS, DMN_IDX, CEN_IDX
 )
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--sfreq", type=int, default=250,
-                    choices=[250, 500])
-args      = parser.parse_args()
-SFREQ_TAG = str(args.sfreq) + "Hz"
-
-TSV_DIR = CLUSTER_BASE + "/difumo_timeseries"
+parser.add_argument("--overwrite", action="store_true",
+                    help="Overwrite existing PDA files")
+args = parser.parse_args()
 
 # ── 1. Build cluster-side script ───────────────────────────
 lines = [
     '#!/usr/bin/env python3',
     '"""',
     '03_compute_pda_cluster.py',
-    'Compute PDA_group and PDA_personal targets from DiFuMo-66 TSVs.',
+    'Compute PDA_group and PDA_personal targets from DiFuMo-68 TSVs.',
     'Baseline z-score matches MURFI real-time computation (Hinds 2011).',
     '"""',
     'import sys',
@@ -57,12 +61,14 @@ lines = [
     '',
     'SUBJECTS     = ' + str(SUBJECTS_EEG_FMRI_ALL),
     'MISSING_RUNS = ' + str(MISSING_RUNS),
+    'OVERWRITE    = ' + str(args.overwrite),
     '',
-    '# Group-level DiFuMo parcel indices (0-based)',
+    '# DiFuMo-64 group indices (0-based)',
+    '# Verified against labels_64_dictionary.csv (Dadi et al. 2020)',
     'DMN_IDX = ' + str(DMN_IDX),
     'CEN_IDX = ' + str(CEN_IDX),
     '',
-    '# MURFI baseline window: first 25 volumes (30s at TR=1.2s)',
+    '# MURFI baseline: first 25 volumes (30s at TR=1.2s)',
     'BASELINE_VOLS = 25',
     '',
     'TASK_RUNS = {',
@@ -71,7 +77,7 @@ lines = [
     '    "feedback":  ["01", "02", "03", "04"],',
     '}',
     '',
-    '# ── Helpers ───────────────────────────────────────────',
+    '# ── Helper ────────────────────────────────────────────',
     'def baseline_zscore(x, n=BASELINE_VOLS):',
     '    """Z-score relative to first n volumes (MURFI convention)."""',
     '    mu  = x[:n].mean(axis=0)',
@@ -82,6 +88,9 @@ lines = [
     '# ── Main loop ─────────────────────────────────────────',
     'print("=" * 55)',
     'print("Computing PDA targets")',
+    'print("  DMN_IDX: " + str(DMN_IDX))',
+    'print("  CEN_IDX: " + str(CEN_IDX))',
+    'print("  Overwrite: " + str(OVERWRITE))',
     'print("=" * 55)',
     '',
     'n_done    = 0',
@@ -108,10 +117,11 @@ lines = [
     '                          + "_run-" + run + "_pda_personal.npy")',
     '',
     '            if out_group.exists() and out_personal.exists():',
-    '                print("  EXISTS (skip): " + subject',
-    '                      + " " + task + " " + run)',
-    '                n_skipped += 1',
-    '                continue',
+    '                if not OVERWRITE:',
+    '                    print("  EXISTS (skip): " + subject',
+    '                          + " " + task + " run-" + run)',
+    '                    n_skipped += 1',
+    '                    continue',
     '',
     '            if not tsv_path.exists():',
     '                print("  MISSING TSV: " + tsv_name)',
@@ -120,42 +130,39 @@ lines = [
     '',
     '            # Load TSV',
     '            df = pd.read_csv(str(tsv_path), sep="\\t")',
+    '            n_vols = len(df)',
     '',
     '            # Extract ROI columns (64 parcels)',
     '            roi_cols = ["ROI_" + str(i+1).zfill(2)',
     '                        for i in range(64)]',
     '            roi_data = df[roi_cols].values.astype(np.float32)',
-    '            # (n_vols, 64)',
     '',
     '            # Baseline z-score all parcels',
     '            roi_z = baseline_zscore(roi_data)',
     '',
     '            # PDA_group',
-    '            cen_z  = roi_z[:, CEN_IDX].mean(axis=1)',
-    '            dmn_z  = roi_z[:, DMN_IDX].mean(axis=1)',
+    '            cen_z     = roi_z[:, CEN_IDX].mean(axis=1)',
+    '            dmn_z     = roi_z[:, DMN_IDX].mean(axis=1)',
     '            pda_group = (cen_z - dmn_z).astype(np.float32)',
     '',
     '            # PDA_personal',
     '            if "DMN_personal" in df.columns and "CEN_personal" in df.columns:',
-    '                dmn_p = df["DMN_personal"].values.astype(np.float32)',
-    '                cen_p = df["CEN_personal"].values.astype(np.float32)',
-    '                # Reshape for baseline_zscore (n_vols, 1)',
-    '                dmn_p_z = baseline_zscore(',
-    '                    dmn_p.reshape(-1, 1)).ravel()',
-    '                cen_p_z = baseline_zscore(',
-    '                    cen_p.reshape(-1, 1)).ravel()',
+    '                dmn_p = df["DMN_personal"].values.reshape(-1, 1).astype(np.float64)',
+    '                cen_p = df["CEN_personal"].values.reshape(-1, 1).astype(np.float64)',
+    '                dmn_p_z = baseline_zscore(dmn_p).ravel()',
+    '                cen_p_z = baseline_zscore(cen_p).ravel()',
     '                pda_personal = (cen_p_z - dmn_p_z).astype(np.float32)',
     '            else:',
-    '                print("  WARNING: no personal columns — using group")',
+    '                print("  WARNING: no personal columns — using group for " + subject)',
     '                pda_personal = pda_group.copy()',
     '',
     '            np.save(str(out_group),    pda_group)',
     '            np.save(str(out_personal), pda_personal)',
     '',
     '            print("  " + subject + " " + task + " run-" + run',
-    '                  + "  n_vols=" + str(len(pda_group))',
-    '                  + "  pda_group_std=" + "{:.3f}".format(pda_group.std())',
-    '                  + "  pda_personal_std=" + "{:.3f}".format(pda_personal.std()))',
+    '                  + "  n=" + str(n_vols)',
+    '                  + "  pda_g_std=" + "{:.3f}".format(pda_group.std())',
+    '                  + "  pda_p_std=" + "{:.3f}".format(pda_personal.std()))',
     '            n_done += 1',
     '',
     'print()',
@@ -186,6 +193,9 @@ except py_compile.PyCompileError as e:
 
 # ── 4. Build SLURM script ──────────────────────────────────
 job_name = "compute_pda"
+run_cmd  = (PYTHON + " " + CLUSTER_BASE + "/scripts/" + script_name
+            + (" --overwrite" if args.overwrite else ""))
+
 sbatch_lines = [
     "#!/bin/bash",
     "#SBATCH --job-name=" + job_name,
@@ -197,7 +207,7 @@ sbatch_lines = [
     "#SBATCH --mem=16G",
     "#SBATCH --account=" + SLURM_ACCOUNT,
     "",
-    PYTHON + " " + CLUSTER_BASE + "/scripts/" + script_name,
+    run_cmd,
 ]
 
 sbatch_name = "03_compute_pda.sh"
@@ -214,6 +224,7 @@ scp_to(sbatch_path,
        CLUSTER_BASE + "/scripts/" + sbatch_name,
        verbose=False)
 print("Deployed: " + script_name)
+print("Command:  " + run_cmd)
 
 # ── 6. Submit ──────────────────────────────────────────────
 print("\nSubmitting SLURM job...")
