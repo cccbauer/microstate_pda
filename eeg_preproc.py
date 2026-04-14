@@ -319,7 +319,7 @@ def preprocess_run(subject, task, run, overwrite=False, sfreq_target=250.0):
                 ecg_epochs_ica,
                 ch_name=ecg_ch_name,
                 method='ctps',
-                threshold=0.5,
+                threshold=0.9,
                 verbose=False
             )
             cardiac_components = [int(i) for i in cardiac_components]
@@ -358,17 +358,24 @@ def preprocess_run(subject, task, run, overwrite=False, sfreq_target=250.0):
         artifact_components + cardiac_components + eog_components
     ))
 
-    # Safeguard: never remove more than 30% of components
-    max_exclude = int(n_components * 0.40)
-    if len(artifact_components) > max_exclude:
-        print("  WARNING: ICLabel flagged " + str(len(artifact_components))
-              + " components — capping at " + str(max_exclude))
-        # Keep cardiac and EOG first, then fill with highest-ranked ICLabel
-        priority = sorted(set(cardiac_components + eog_components))
-        remaining = [c for c in artifact_components if c not in priority]
-        artifact_components = sorted(priority + remaining[:max_exclude - len(priority)])
-        print("  Capped exclusions: " + str(artifact_components))
+# Combine: ICLabel + cardiac + EOG
+    # Priority: cardiac and EOG always included
+    # ICLabel capped at 20% on top
+    priority   = sorted(set(cardiac_components + eog_components))
+    iclabel_extra = [c for c in artifact_components
+                     if c not in priority]
+    max_iclabel = int(n_components * 0.20)
+    if len(iclabel_extra) > max_iclabel:
+        print("  WARNING: ICLabel flagged " + str(len(iclabel_extra))
+              + " extra components — capping at " + str(max_iclabel))
+        iclabel_extra = iclabel_extra[:max_iclabel]
 
+    artifact_components = sorted(set(priority + iclabel_extra))
+    print("  Final exclusions: " + str(artifact_components)
+          + "  (cardiac=" + str(cardiac_components)
+          + "  eog=" + str(eog_components)
+          + "  iclabel=" + str(iclabel_extra) + ")")
+    
     if artifact_components:
         ica.exclude = artifact_components
         raw_clean   = raw_filtered.copy()
