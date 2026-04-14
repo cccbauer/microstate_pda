@@ -10,8 +10,7 @@ PYTHON         = "$HOME/my_anaconda/bin/python"
 
 # ── Cluster paths ──────────────────────────────────────────
 CLUSTER_BASE   = "/projects/swglab/data/DMNELF/analysis/MNE/jupyter/microstate_pda_v3"
-EEG_ROOT       = "/projects/swglab/data/DMNELF/analysis/MNE/bids/derivatives/preprocessed"
-DIFUMO_ROOT    = "/projects/swglab/data/DMNELF/analysis/MNE/jupyter/neurobolt/difumo_timeseries"
+EEG_ROOT       = "/projects/swglab/data/DMNELF/derivatives/eeg_preprocessed"DIFUMO_ROOT    = "/projects/swglab/data/DMNELF/analysis/MNE/jupyter/neurobolt/difumo_timeseries"
 CONFOUND_ROOT  = "/projects/swglab/data/DMNELF/derivatives/fmriprep_24.1.1_wo_FS"
 EEG_PREP_ROOT = Path("/projects/swglab/data/DMNELF/derivatives/eeg_preprocessed")
 
@@ -94,7 +93,7 @@ SUBJECTS_FMRI_ONLY = [
 SUBJECTS_EEG_FMRI_ALL = SUBJECTS_EEG_FMRI + SUBJECTS_EEG_FMRI_PARTIAL
 
 # ── EEG ────────────────────────────────────────────────────
-SFREQ          = 200        # Hz after resampling
+SFREQ          = 250        # Hz after resampling
 N_CHANNELS     = 31
 TR_SAMPLES     = 240        # EEG samples per TR at 200 Hz
 ALIGNMENT_TOL  = 480        # max tolerated misalignment (~2 TR)
