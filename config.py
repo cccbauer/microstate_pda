@@ -10,7 +10,8 @@ PYTHON         = "$HOME/my_anaconda/bin/python"
 
 # ── Cluster paths ──────────────────────────────────────────
 CLUSTER_BASE   = "/projects/swglab/data/DMNELF/analysis/MNE/jupyter/microstate_pda_v3"
-EEG_ROOT       = "/projects/swglab/data/DMNELF/derivatives/eeg_preprocessed"DIFUMO_ROOT    = "/projects/swglab/data/DMNELF/analysis/MNE/jupyter/neurobolt/difumo_timeseries"
+EEG_ROOT       = "/projects/swglab/data/DMNELF/derivatives/eeg_preprocessed"
+DIFUMO_ROOT    = "/projects/swglab/data/DMNELF/analysis/MNE/jupyter/neurobolt/difumo_timeseries"
 CONFOUND_ROOT  = "/projects/swglab/data/DMNELF/derivatives/fmriprep_24.1.1_wo_FS"
 EEG_PREP_ROOT = Path("/projects/swglab/data/DMNELF/derivatives/eeg_preprocessed")
 
@@ -107,9 +108,15 @@ POLARITY_INVARIANT  = True  # standard for microstate analysis
 
 # ── fMRI / DiFuMo-64 ───────────────────────────────────────
 N_PARCELS      = 64
-# 0-based indices into ROI_ columns of DiFuMo TSV
-# Source: labels_64_dictionary.csv (Dadi et al. 2020), verified manually
-DMN_IDX = [3, 6, 22, 29, 35, 38, 58, 60]
+# DiFuMo-64 parcel indices (0-based) for DMN and CEN
+# Verified against labels_64_dictionary.csv (Dadi et al. 2020)
+# DMN: PCC(3), STS/angular(6), sup rostral gyrus(29), angular sup(35),
+#      dmPFC(38), angular inf(58), MTG(60), sup frontal gyrus(61)
+# Note: ACC (idx 22) removed — Yeo-17 assigns it to SalVentAttnB
+DMN_IDX = [3, 6, 29, 35, 38, 58, 60, 61]
+
+# CEN: parieto-occipital(4), IPS(31), IPS-RH(47), IFsulcus(48),
+#      MFG(50), IFG(51)
 CEN_IDX = [4, 31, 47, 48, 50, 51]
 
 # ── MURFI-aligned PDA ──────────────────────────────────────
