@@ -363,24 +363,27 @@ def _save_qc_raw(raw, eeg_ch_names, cardiac_events,
     axes[0].set_xticklabels(eeg_ch_names, rotation=90, fontsize=7)
     axes[0].set_ylabel("Std (µV)")
 
-    # Panel 2: first 20s
-    sfreq     = raw.info['sfreq']
-    n_plot    = int(20 * sfreq)
-    data_plot = eeg_data[:, :n_plot]
-    t_plot    = raw.times[:n_plot]
-    offset    = 0
+    # Panel 2: whole run traces (decimated, all channels)
+    sfreq   = raw.info['sfreq']
+    decim   = max(1, int(sfreq / 50))
+    d_dec   = eeg_data[:, ::decim]
+    t_dec   = raw.times[::decim]
+    offset  = 0
+    yticks  = []
     for i, ch in enumerate(eeg_ch_names):
         color = 'red' if ch in auto_bads else 'black'
-        axes[1].plot(t_plot, data_plot[i] * 1e6 + offset,
+        axes[1].plot(t_dec, d_dec[i] * 1e6 + offset,
                      color=color, linewidth=0.3, alpha=0.7)
+        yticks.append((offset, ch))
         offset += 150
     for ann in raw.annotations:
         if 'BAD' in ann['description']:
             axes[1].axvspan(ann['onset'],
-                            min(ann['onset'] + ann['duration'], 20),
+                            ann['onset'] + ann['duration'],
                             alpha=0.2, color='red')
-    axes[1].set_title("First 20s (red=bad, shading=BAD annotation)")
-    axes[1].set_ylabel("Channels (offset µV)")
+    axes[1].set_yticks([y[0] for y in yticks])
+    axes[1].set_yticklabels([y[1] for y in yticks], fontsize=7)
+    axes[1].set_title("Whole run — raw (red=bad channels, shading=BAD annotation)")
     axes[1].set_xlabel("Time (s)")
 
     # Panel 3: PSD
@@ -450,37 +453,41 @@ def _save_qc_final(raw_before, raw_after,
     axes[2].set_ylim(axes[1].get_ylim())  # same y scale for comparison
 
     # Panel 4: whole run traces before (first 8 channels, decimated)
-    decim = max(1, int(sfreq / 50))  # decimate to ~50Hz for plotting
+    eeg_ch_names_b = [ch for ch in raw_before.ch_names
+                      if raw_before.get_channel_types()[raw_before.ch_names.index(ch)] == 'eeg']
+    decim   = max(1, int(sfreq / 50))
     d_b_dec = d_b[:8, ::decim]
     t_b_dec = t_b[::decim]
     offset  = 0
+    yticks  = []
     for i in range(min(8, d_b_dec.shape[0])):
         axes[3].plot(t_b_dec, d_b_dec[i] * 1e6 + offset,
                      linewidth=0.3, color='steelblue', alpha=0.7)
+        yticks.append((offset, eeg_ch_names_b[i] if i < len(eeg_ch_names_b) else str(i)))
         offset += 200
+    axes[3].set_yticks([y[0] for y in yticks])
+    axes[3].set_yticklabels([y[1] for y in yticks], fontsize=8)
     axes[3].set_title("Whole run — before (first 8 channels)")
-    axes[3].set_ylabel("Channels (offset µV)")
     axes[3].set_xlabel("Time (s)")
 
     # Panel 5: whole run traces after (first 8 channels, decimated)
+    eeg_ch_names_a = [ch for ch in raw_after.ch_names
+                      if raw_after.get_channel_types()[raw_after.ch_names.index(ch)] == 'eeg']
     sfreq_a  = raw_after.info['sfreq']
     decim_a  = max(1, int(sfreq_a / 50))
     d_a_dec  = d_a[:8, ::decim_a]
     t_a_dec  = t_a[::decim_a]
     offset   = 0
+    yticks_a = []
     for i in range(min(8, d_a_dec.shape[0])):
         axes[4].plot(t_a_dec, d_a_dec[i] * 1e6 + offset,
                      linewidth=0.3, color='green', alpha=0.7)
+        yticks_a.append((offset, eeg_ch_names_a[i] if i < len(eeg_ch_names_a) else str(i)))
         offset += 200
+    axes[4].set_yticks([y[0] for y in yticks_a])
+    axes[4].set_yticklabels([y[1] for y in yticks_a], fontsize=8)
     axes[4].set_title("Whole run — after (first 8 channels)")
-    axes[4].set_ylabel("Channels (offset µV)")
     axes[4].set_xlabel("Time (s)")
-
-    plt.tight_layout()
-    fname = qc_dir / (subject + "_ses-dmnelf_task-" + task
-                      + "_run-" + run + "_qc_final.png")
-    fig.savefig(str(fname), dpi=100)
-    plt.close()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
