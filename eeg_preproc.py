@@ -341,7 +341,7 @@ def preprocess_run(subject, task, run, overwrite=False):
                 corr = abs(np.corrcoef(
                     sources[idx][:min_len], eog_proxy[:min_len]
                 )[0, 1])
-                if corr > 0.4:
+                if corr > 0.5:
                     eog_components.append(idx)
             if eog_components:
                 print("  EOG ICA: " + str(eog_components))
@@ -353,7 +353,7 @@ def preprocess_run(subject, task, run, overwrite=False):
     ))
 
     # Safeguard: never remove more than 30% of components
-    max_exclude = int(n_components * 0.30)
+    max_exclude = int(n_components * 0.40)
     if len(artifact_components) > max_exclude:
         print("  WARNING: ICLabel flagged " + str(len(artifact_components))
               + " components — capping at " + str(max_exclude))
@@ -458,7 +458,7 @@ def _save_qc_preproc(raw_before, raw_after,
                      qc_dir, subject, session, task, run, cardiac_freq):
     import mne
     import matplotlib.pyplot as plt
-    
+
     fig, axes = plt.subplots(5, 1, figsize=(20, 22))
 
     # Panel 1: PSD comparison
