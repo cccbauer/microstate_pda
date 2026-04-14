@@ -224,7 +224,7 @@ lines = [
 ]
 
 # ── 2. Save cluster script locally ─────────────────────────
-script_name = "01_fit_microstates_cluster.py"
+script_name = "01_fit_microstates_" + SFREQ_TAG + "_cluster.py"
 script_path = LOCAL_BASE / "scripts" / script_name
 script_path.parent.mkdir(parents=True, exist_ok=True)
 
