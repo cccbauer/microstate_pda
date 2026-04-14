@@ -55,7 +55,7 @@ MISSING_RUNS = {
 }
 
 # ── Preprocessing parameters ───────────────────────────────────────────────
-SFREQ_TARGET    = 250.0
+SFREQ_TARGET    = 250.0  # default, overridden by --sfreq argument
 HIGHPASS        = 1.0
 LOWPASS         = 40.0
 N_ICA           = 29
@@ -71,7 +71,7 @@ EDGE_THRESH     = 3.0
 # PREPROCESSING FUNCTION
 # ═══════════════════════════════════════════════════════════════════════════
 
-def preprocess_run(subject, task, run, overwrite=False):
+def preprocess_run(subject, task, run, overwrite=False, sfreq_target=250.0):
     import mne
     mne.set_log_level('WARNING')
 
@@ -85,9 +85,11 @@ def preprocess_run(subject, task, run, overwrite=False):
     edf_file   = eeg_dir / (subject + "_" + session
                             + "_task-" + task + "_run-" + run
                             + "_desc-bvaAC1kHz_eeg.edf")
+    sfreq_tag  = str(int(sfreq_target)) + "Hz"
+    
     output_fif = out_dir / (subject + "_" + session
                             + "_task-" + task + "_run-" + run
-                            + "_desc-preproc_eeg.fif")
+                            + "_desc-preproc" + sfreq_tag + "_eeg.fif")
 
     tag = subject + " task-" + task + " run-" + run
     print("\n" + "=" * 60)
@@ -262,9 +264,9 @@ def preprocess_run(subject, task, run, overwrite=False):
         print("  BCG skipped — no R-peaks detected (flag for QC)")
 
     # ── 8. Downsample ─────────────────────────────────────
-    if raw_filtered.info['sfreq'] > SFREQ_TARGET:
-        print("  Downsampling to " + str(SFREQ_TARGET) + "Hz...")
-        raw_filtered.resample(SFREQ_TARGET, verbose=False)
+    if raw_filtered.info['sfreq'] > sfreq_target:
+        print("  Downsampling to " + str(sfreq_target) + "Hz...")
+        raw_filtered.resample(sfreq_target, verbose=False)
 
     # ── 9. Set montage ────────────────────────────────────
     try:
@@ -561,6 +563,8 @@ def main():
     parser.add_argument("--run",       type=str, default=None)
     parser.add_argument("--all",       action="store_true")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--sfreq", type=float, default=250.0,
+                        help="Target sampling frequency (default: 250)")
     args = parser.parse_args()
 
     if args.all or (args.subject and not args.task) or \
@@ -574,7 +578,8 @@ def main():
                     if subject in MISSING_RUNS:
                         if (task, run) in MISSING_RUNS[subject]:
                             continue
-                    ok = preprocess_run(subject, task, run, args.overwrite)
+                    ok = preprocess_run(subject, task, run,
+                                        args.overwrite, args.sfreq)
                     if ok:
                         n_ok += 1
                     else:
