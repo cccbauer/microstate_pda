@@ -352,6 +352,17 @@ def preprocess_run(subject, task, run, overwrite=False):
         artifact_components + cardiac_components + eog_components
     ))
 
+    # Safeguard: never remove more than 30% of components
+    max_exclude = int(n_components * 0.30)
+    if len(artifact_components) > max_exclude:
+        print("  WARNING: ICLabel flagged " + str(len(artifact_components))
+              + " components — capping at " + str(max_exclude))
+        # Keep cardiac and EOG first, then fill with highest-ranked ICLabel
+        priority = sorted(set(cardiac_components + eog_components))
+        remaining = [c for c in artifact_components if c not in priority]
+        artifact_components = sorted(priority + remaining[:max_exclude - len(priority)])
+        print("  Capped exclusions: " + str(artifact_components))
+
     if artifact_components:
         ica.exclude = artifact_components
         raw_clean   = raw_filtered.copy()
