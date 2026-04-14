@@ -25,7 +25,7 @@ def main():
     args = parser.parse_args()
 
     # ── 1. Deploy eeg_preproc.py to cluster ────────────────
-    local_script = LOCAL_BASE / "eeg_preproc.py"
+    local_script = Path(__file__).parent / "eeg_preproc.py"
     if not local_script.exists():
         print("ERROR: eeg_preproc.py not found at " + str(local_script))
         return
