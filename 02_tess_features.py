@@ -1,28 +1,40 @@
 # 02_tess_features.py
-# Run locally: python 02_tess_features.py
-# Deploys cluster script, submits SLURM array job.
+# Run locally: python 02_tess_features.py [--sfreq 250|500]
+# Deploys cluster script, submits SLURM job.
 #
 # What it does on the cluster:
-#   - Loads fitted templates.npy from 01_fit_microstates.py
-#   - For each subject x task x run:
-#       1. Load preprocessed EEG
-#       2. TESS Stage 1: project onto 7 templates → T-hat (continuous)
-#       3. Convolve each T-hat with canonical HRF
-#       4. Downsample to TR
-#       5. Append GFP and GMD (downsampled)
-#       6. Save (n_vols, 9) feature matrix
-#   - Output: features/{subject}_{task}_{run}_features.npy
+#   For each subject x task x run:
+#   1. Load preprocessed EEG (250Hz or 500Hz FIF)
+#   2. Load microstate templates fitted at same sfreq
+#   3. TESS Stage 1: project onto 7 templates → T-hat (continuous)
+#   4. Convolve each T-hat with canonical HRF (Glover 1999)
+#   5. Downsample to TR (1.2s)
+#   6. Append GFP and GMD (downsampled)
+#   7. Save (n_vols, 9) feature matrix
+#
+# Output:
+#   features/{subject}_task-{task}_run-{run}_{sfreq}Hz_features.npy
 
+import argparse
 import py_compile
 import time
 from pathlib import Path
 from utils import run_ssh, scp_to, make_cluster_dirs
 from config import (
     CLUSTER_BASE, SLURM_ACCOUNT, PYTHON,
-    SUBJECTS, EEG_ROOT, DIFUMO_ROOT,
-    SFREQ, TR_SAMPLES, TR, N_MICROSTATES,
-    LOCAL_BASE
+    SUBJECTS_EEG_FMRI_ALL, EEG_ROOT,
+    TR, N_MICROSTATES, LOCAL_BASE,
+    MISSING_RUNS
 )
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--sfreq", type=int, default=250,
+                    choices=[250, 500],
+                    help="EEG sampling frequency (default: 250)")
+args   = parser.parse_args()
+SFREQ     = args.sfreq
+SFREQ_TAG = str(SFREQ) + "Hz"
+TR_SAMPLES = int(round(SFREQ * TR))
 
 # ── 1. Build cluster-side script ───────────────────────────
 lines = [
@@ -30,28 +42,29 @@ lines = [
     '"""',
     '02_tess_features_cluster.py',
     'Compute TESS T-hat features for all subjects x tasks x runs.',
-    'Loads templates from 01_fit_microstates.py output.',
+    'Loads microstate templates fitted at the same sfreq.',
     '"""',
     'import sys',
     'sys.stdout.reconfigure(line_buffering=True)',
     'import numpy as np',
     'from pathlib import Path',
     'import mne',
-    'from scipy.signal import argrelmax',
     'from scipy.stats import gamma as gamma_dist',
     '',
     '# ── Constants ─────────────────────────────────────────',
-    'EEG_ROOT      = Path("' + EEG_ROOT + '")',
-    'CLUSTER_BASE  = Path("' + CLUSTER_BASE + '")',
-    'TEMPLATES_PATH = CLUSTER_BASE / "microstates" / "templates.npy"',
-    'OUT_DIR       = CLUSTER_BASE / "features"',
+    'EEG_ROOT       = Path("' + EEG_ROOT + '")',
+    'CLUSTER_BASE   = Path("' + CLUSTER_BASE + '")',
+    'TEMPLATES_PATH = CLUSTER_BASE / "microstates" / "templates_' + SFREQ_TAG + '.npy"',
+    'OUT_DIR        = CLUSTER_BASE / "features"',
     'OUT_DIR.mkdir(parents=True, exist_ok=True)',
     '',
-    'SUBJECTS      = ' + str(SUBJECTS),
+    'SUBJECTS      = ' + str(SUBJECTS_EEG_FMRI_ALL),
     'SFREQ         = ' + str(SFREQ),
-    'TR_SAMPLES    = ' + str(TR_SAMPLES),
+    'SFREQ_TAG     = "' + SFREQ_TAG + '"',
     'TR            = ' + str(TR),
+    'TR_SAMPLES    = ' + str(TR_SAMPLES),
     'N_MICROSTATES = ' + str(N_MICROSTATES),
+    'MISSING_RUNS  = ' + str(MISSING_RUNS),
     '',
     'TASK_RUNS = {',
     '    "rest":      ["01", "02"],',
@@ -61,16 +74,13 @@ lines = [
     '',
     '# ── Load templates ────────────────────────────────────',
     'print("=" * 55)',
-    'print("Loading templates")',
+    'print("Loading templates  " + SFREQ_TAG)',
     'print("=" * 55)',
     'if not TEMPLATES_PATH.exists():',
-    '    print("ERROR: templates.npy not found at " + str(TEMPLATES_PATH))',
-    '    print("Run 01_fit_microstates.py first.")',
+    '    print("ERROR: templates not found: " + str(TEMPLATES_PATH))',
     '    sys.exit(1)',
-    '',
     'templates = np.load(str(TEMPLATES_PATH))',
     'print("Templates shape: " + str(templates.shape))',
-    'print("Expected:        (" + str(N_MICROSTATES) + ", n_channels)")',
     '',
     '# ── Helpers ───────────────────────────────────────────',
     'def load_eeg(fif_path):',
@@ -81,10 +91,6 @@ lines = [
     '                   ("ECG","EKG","EMG","EOG","STIM","STATUS"))]',
     '    if drop:',
     '        raw.drop_channels(drop)',
-    '    ref = float(np.abs(raw.get_data().mean(axis=0)).mean())',
-    '    if ref > 1e-7:',
-    '        raw.set_eeg_reference("average", projection=False,',
-    '                               verbose=False)',
     '    if raw.info["sfreq"] != SFREQ:',
     '        raw.resample(SFREQ, verbose=False)',
     '    return (raw.get_data() * 1e6).astype(np.float32)',
@@ -93,18 +99,18 @@ lines = [
     '    return eeg.std(axis=0).astype(np.float32)',
     '',
     'def compute_gmd(eeg):',
-    '    norm = eeg / (eeg.std(axis=0, keepdims=True) + 1e-10)',
-    '    diff = np.diff(norm, axis=1)',
+    '    diff = np.diff(eeg, axis=1)',
     '    gmd  = np.sqrt((diff ** 2).mean(axis=0)).astype(np.float32)',
-    '    return np.concatenate([[0.0], gmd]).astype(np.float32)',
+    '    return np.concatenate([[gmd[0]], gmd]).astype(np.float32)',
     '',
-    'def hrf_canonical(tr, duration=32.0):',
-    '    """Canonical double-gamma HRF (Glover 1999)."""',
-    '    t     = np.arange(0.0, duration, tr)',
+    'def hrf_canonical(sfreq, duration=32.0):',
+    '    """Canonical double-gamma HRF (Glover 1999) at EEG sfreq."""',
+    '    dt    = 1.0 / sfreq',
+    '    t     = np.arange(0.0, duration, dt)',
     '    peak  = gamma_dist.pdf(t, 5.0, scale=1.0)',
     '    under = gamma_dist.pdf(t, 15.0, scale=1.0)',
     '    hrf   = peak - under / 6.0',
-    '    hrf  /= hrf.max()',
+    '    hrf  /= (hrf.max() + 1e-10)',
     '    return hrf.astype(np.float32)',
     '',
     'def convolve_hrf(signal, hrf):',
@@ -115,40 +121,33 @@ lines = [
     '    n_vols = len(signal) // tr_samples',
     '    out    = np.zeros(n_vols, dtype=np.float32)',
     '    for i in range(n_vols):',
-    '        out[i] = signal[i * tr_samples:(i + 1) * tr_samples].mean()',
+    '        out[i] = signal[i*tr_samples:(i+1)*tr_samples].mean()',
     '    return out',
     '',
-    'def tess_project(eeg, templates):',
+    'def compute_features(eeg, templates, tr_samples, sfreq):',
     '    """',
-    '    TESS Stage 1 spatial GLM.',
-    '    Returns T-hat: (n_maps, n_samples)',
-    '    """',
-    '    return (templates @ eeg).astype(np.float32)',
-    '',
-    'def compute_features(eeg, templates, tr_samples, tr):',
-    '    """',
-    '    Full feature pipeline for one run.',
+    '    Full TESS feature pipeline for one run.',
     '    Returns: (n_vols, n_maps + 2) float32',
-    '    Columns: T-hat_0..T-hat_6, GFP, GMD',
+    '    Columns: T-hat_A..T-hat_G, GFP, GMD',
     '    """',
-    '    hrf    = hrf_canonical(tr)',
+    '    hrf    = hrf_canonical(sfreq)',
     '    n_maps = templates.shape[0]',
     '',
-    '    # T-hat at EEG rate → HRF convolve → downsample',
-    '    t_hat  = tess_project(eeg, templates)',
-    '    n_vols = len(eeg[0]) // tr_samples',
+    '    # TESS Stage 1: spatial projection → T-hat (n_maps, n_samples)',
+    '    t_hat = (templates @ eeg).astype(np.float32)',
+    '',
+    '    # HRF convolution + downsample per map',
+    '    n_vols   = eeg.shape[1] // tr_samples',
     '    t_hat_tr = np.zeros((n_maps, n_vols), dtype=np.float32)',
     '    for m in range(n_maps):',
-    '        conv         = convolve_hrf(t_hat[m], hrf)',
-    '        t_hat_tr[m]  = downsample_to_tr(conv, tr_samples)',
+    '        conv        = convolve_hrf(t_hat[m], hrf)',
+    '        t_hat_tr[m] = downsample_to_tr(conv, tr_samples)',
     '',
     '    # GFP and GMD → downsample',
-    '    gfp    = compute_gfp(eeg)',
-    '    gmd    = compute_gmd(eeg)',
-    '    gfp_tr = downsample_to_tr(gfp, tr_samples)',
-    '    gmd_tr = downsample_to_tr(gmd, tr_samples)',
+    '    gfp_tr = downsample_to_tr(compute_gfp(eeg),  tr_samples)',
+    '    gmd_tr = downsample_to_tr(compute_gmd(eeg),  tr_samples)',
     '',
-    '    # Trim to min length (alignment safety)',
+    '    # Assemble (n_vols, 9)',
     '    n_vols = min(t_hat_tr.shape[1], len(gfp_tr), len(gmd_tr))',
     '    feats  = np.zeros((n_vols, n_maps + 2), dtype=np.float32)',
     '    feats[:, :n_maps]    = t_hat_tr[:, :n_vols].T',
@@ -159,7 +158,7 @@ lines = [
     '# ── Main loop ─────────────────────────────────────────',
     'print()',
     'print("=" * 55)',
-    'print("Computing TESS features")',
+    'print("Computing TESS features  " + SFREQ_TAG)',
     'print("=" * 55)',
     '',
     'n_done    = 0',
@@ -169,53 +168,52 @@ lines = [
     'for subject in SUBJECTS:',
     '    for task, runs in TASK_RUNS.items():',
     '        for run in runs:',
+    '',
+    '            # Skip known missing raw data runs',
+    '            if subject in MISSING_RUNS:',
+    '                if (task, run) in MISSING_RUNS[subject]:',
+    '                    continue',
+    '',
     '            fif_name = (subject + "_ses-dmnelf_task-" + task',
-    '                        + "_run-" + run + "_desc-preproc_eeg.fif")',
+    '                        + "_run-" + run',
+    '                        + "_desc-preproc" + SFREQ_TAG + "_eeg.fif")',
     '            fif = (EEG_ROOT / subject / "ses-dmnelf"',
     '                   / "eeg" / fif_name)',
     '',
     '            out_name = (subject + "_task-" + task',
-    '                        + "_run-" + run + "_features.npy")',
+    '                        + "_run-" + run',
+    '                        + "_" + SFREQ_TAG + "_features.npy")',
     '            out_path = OUT_DIR / out_name',
-    '',
-    '            if not fif.exists():',
-    '                print("  MISSING EEG: " + fif_name)',
-    '                n_missing += 1',
-    '                continue',
     '',
     '            if out_path.exists():',
     '                print("  EXISTS (skip): " + out_name)',
     '                n_skipped += 1',
     '                continue',
     '',
-    '            print("  Processing: " + subject',
-    '                  + "  task-" + task + "  run-" + run)',
+    '            if not fif.exists():',
+    '                print("  MISSING: " + fif_name)',
+    '                n_missing += 1',
+    '                continue',
     '',
+    '            print("  " + subject + "  " + task + "  run-" + run)',
     '            eeg   = load_eeg(fif)',
     '            feats = compute_features(eeg, templates,',
-    '                                     TR_SAMPLES, TR)',
-    '',
+    '                                     TR_SAMPLES, SFREQ)',
     '            np.save(str(out_path), feats)',
-    '',
-    '            print("    EEG:      " + str(eeg.shape))',
-    '            print("    Features: " + str(feats.shape)',
-    '                  + "  expect (n_vols, " + str(N_MICROSTATES + 2) + ")")',
-    '            print("    Saved:    " + out_name)',
+    '            print("    shape=" + str(feats.shape))',
     '            n_done += 1',
     '',
     'print()',
     'print("=" * 55)',
-    'print("Summary")',
-    'print("=" * 55)',
+    'print("DONE  " + SFREQ_TAG)',
     'print("  Computed: " + str(n_done))',
-    'print("  Skipped:  " + str(n_skipped) + " (already existed)")',
-    'print("  Missing:  " + str(n_missing) + " (EEG file not found)")',
-    'print()',
-    'print("DONE")',
+    'print("  Skipped:  " + str(n_skipped))',
+    'print("  Missing:  " + str(n_missing))',
+    'print("=" * 55)',
 ]
 
 # ── 2. Save cluster script locally ─────────────────────────
-script_name = "02_tess_features_cluster.py"
+script_name = "02_tess_features_" + SFREQ_TAG + "_cluster.py"
 script_path = LOCAL_BASE / "scripts" / script_name
 script_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -232,11 +230,12 @@ except py_compile.PyCompileError as e:
     raise
 
 # ── 4. Build SLURM script ──────────────────────────────────
+job_name = "tess_" + SFREQ_TAG
 sbatch_lines = [
     "#!/bin/bash",
-    "#SBATCH --job-name=tess_features",
-    "#SBATCH --output=" + CLUSTER_BASE + "/logs/tess_features_%j.out",
-    "#SBATCH --error="  + CLUSTER_BASE + "/logs/tess_features_%j.err",
+    "#SBATCH --job-name=" + job_name,
+    "#SBATCH --output=" + CLUSTER_BASE + "/logs/" + job_name + "_%j.out",
+    "#SBATCH --error="  + CLUSTER_BASE + "/logs/" + job_name + "_%j.err",
     "#SBATCH --partition=short",
     "#SBATCH --time=04:00:00",
     "#SBATCH --cpus-per-task=4",
@@ -246,19 +245,68 @@ sbatch_lines = [
     PYTHON + " " + CLUSTER_BASE + "/scripts/" + script_name,
 ]
 
-sbatch_name = "02_tess_features.sh"
+sbatch_name = "02_tess_features_" + SFREQ_TAG + ".sh"
 sbatch_path = LOCAL_BASE / "scripts" / sbatch_name
 with open(sbatch_path, "w") as f:
     f.write("\n".join(sbatch_lines))
 
-print("Scripts ready. Waiting for 01_fit_microstates to finish")
-print("before deploying — templates.npy must exist first.")
-print()
-print("When job 5768317 finishes run:")
-print("  python 02_tess_features.py --deploy")
-print()
-print("Or deploy manually now:")
-print("  scp scripts/" + script_name + " cccbauer@explorer.northeastern.edu:"
-      + CLUSTER_BASE + "/scripts/")
-print("  scp scripts/" + sbatch_name + " cccbauer@explorer.northeastern.edu:"
-      + CLUSTER_BASE + "/scripts/")
+# ── 5. Deploy ──────────────────────────────────────────────
+print("\nDeploying...")
+scp_to(script_path,
+       CLUSTER_BASE + "/scripts/" + script_name,
+       verbose=False)
+scp_to(sbatch_path,
+       CLUSTER_BASE + "/scripts/" + sbatch_name,
+       verbose=False)
+print("Deployed: " + script_name)
+print("Deployed: " + sbatch_name)
+
+# ── 6. Check templates exist before submitting ─────────────
+templates_check = run_ssh(
+    "ls " + CLUSTER_BASE + "/microstates/templates_"
+    + SFREQ_TAG + ".npy 2>/dev/null || echo MISSING",
+    verbose=False
+)
+if "MISSING" in templates_check.stdout:
+    print("\nWARNING: templates_" + SFREQ_TAG + ".npy not found.")
+    print("Run 01_fit_microstates.py --sfreq " + str(SFREQ) + " first.")
+    print("Script deployed but not submitted.")
+else:
+    # ── 7. Submit ──────────────────────────────────────────
+    print("\nSubmitting SLURM job...")
+    result = run_ssh("sbatch " + CLUSTER_BASE + "/scripts/" + sbatch_name)
+    job_id = ""
+    for line in result.stdout.strip().split("\n"):
+        if "Submitted" in line:
+            job_id = line.strip().split()[-1]
+            print("Job ID: " + job_id)
+
+    # ── 8. Monitor ─────────────────────────────────────────
+    if job_id:
+        print("\nMonitoring job " + job_id + "  (Ctrl+C to stop)")
+        print("-" * 55)
+        try:
+            while True:
+                r = run_ssh(
+                    "squeue -j " + job_id
+                    + " --format=%.8i_%.8T_%.10M 2>/dev/null",
+                    verbose=False
+                )
+                status = r.stdout.strip()
+                if status and "JOBID" not in status.split("\n")[-1]:
+                    print(status)
+                else:
+                    print("Job finished — checking log...")
+                    log = run_ssh(
+                        "tail -20 " + CLUSTER_BASE
+                        + "/logs/" + job_name + "_" + job_id
+                        + ".out 2>/dev/null",
+                        verbose=False
+                    )
+                    print(log.stdout)
+                    break
+                time.sleep(15)
+        except KeyboardInterrupt:
+            print("\nStopped watching.")
+            print("  tail -f " + CLUSTER_BASE
+                  + "/logs/" + job_name + "_" + job_id + ".out")
