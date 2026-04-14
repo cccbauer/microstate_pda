@@ -216,38 +216,50 @@ def preprocess_run(subject, task, run, overwrite=False):
     )
 
     # ── 7. BCG correction via ECG epochs ──────────────────
-    if ecg_ch_name is not None:
-        print("  BCG correction via ECG epochs...")
+    if ecg_ch_name is not None and cardiac_events is not None:
+        print("  BCG correction using NeuroKit2 R-peaks...")
         try:
-            ecg_epochs = mne.preprocessing.create_ecg_epochs(
-                raw_filtered,
-                ch_name=ecg_ch_name,
-                tmin=BCG_TMIN,
-                tmax=BCG_TMAX,
-                baseline=None,
-                preload=True,
+            # Build events array from our NeuroKit2 R-peaks
+            # Adjust R-peak indices to filtered data (same sfreq at this point)
+            events_bcg = np.column_stack([
+                cardiac_events,
+                np.zeros(len(cardiac_events), dtype=int),
+                np.ones(len(cardiac_events),  dtype=int)
+            ])
+            epochs_bcg = mne.Epochs(
+                raw_filtered, events_bcg, event_id=1,
+                tmin=BCG_TMIN, tmax=BCG_TMAX,
+                baseline=None, preload=True,
+                picks='eeg',
+                reject_by_annotation=True,
                 verbose=False
             )
-            if len(ecg_epochs) > 5:
-                bcg_template = ecg_epochs.average()
-                template_data = bcg_template.get_data(picks='eeg')
-                n_tmpl = template_data.shape[1]
-                eeg_picks = mne.pick_types(raw_filtered.info, eeg=True)
-                raw_data  = raw_filtered.get_data(picks='eeg')
-                events    = ecg_epochs.events[:, 0]
-                for r_samp in events:
-                    onset = r_samp + int(BCG_TMIN * raw_filtered.info['sfreq'])
+            n_epochs = len(epochs_bcg)
+            print("  BCG epochs: " + str(n_epochs))
+            if n_epochs > 10:
+                bcg_template  = epochs_bcg.average()
+                template_data = bcg_template.get_data()  # (n_eeg, n_times)
+                n_tmpl        = template_data.shape[1]
+                eeg_picks     = mne.pick_types(raw_filtered.info, eeg=True)
+                raw_data      = raw_filtered.get_data(picks='eeg').copy()
+                sfreq_f       = raw_filtered.info['sfreq']
+                n_applied     = 0
+                for r_samp in cardiac_events:
+                    onset = r_samp + int(BCG_TMIN * sfreq_f)
                     end   = onset + n_tmpl
                     if onset >= 0 and end <= raw_data.shape[1]:
                         raw_data[:, onset:end] -= template_data
+                        n_applied += 1
                 raw_filtered._data[eeg_picks, :] = raw_data
-                print("  BCG applied (" + str(len(ecg_epochs)) + " epochs)")
+                print("  BCG applied to " + str(n_applied) + " heartbeats")
             else:
-                print("  BCG skipped (too few epochs: " + str(len(ecg_epochs)) + ")")
+                print("  BCG skipped (too few clean epochs: " + str(n_epochs) + ")")
         except Exception as e:
             print("  BCG failed: " + str(e))
+    elif ecg_ch_name is None:
+        print("  BCG skipped — no ECG channel found (flag for QC)")
     else:
-        print("  BCG skipped (no ECG channel)")
+        print("  BCG skipped — no R-peaks detected (flag for QC)")
 
     # ── 8. Downsample ─────────────────────────────────────
     if raw_filtered.info['sfreq'] > SFREQ_TARGET:
