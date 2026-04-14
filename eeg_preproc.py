@@ -397,6 +397,8 @@ def preprocess_run(subject, task, run, overwrite=False):
 
 def _save_qc_raw(raw, eeg_ch_names, auto_bads,
                  qc_dir, subject, session, task, run):
+    import mne
+    import matplotlib.pyplot as plt
     fig, axes = plt.subplots(3, 1, figsize=(20, 14))
 
     # Panel 1: channel std
@@ -454,6 +456,9 @@ def _save_qc_raw(raw, eeg_ch_names, auto_bads,
 
 def _save_qc_preproc(raw_before, raw_after,
                      qc_dir, subject, session, task, run, cardiac_freq):
+    import mne
+    import matplotlib.pyplot as plt
+    
     fig, axes = plt.subplots(5, 1, figsize=(20, 22))
 
     # Panel 1: PSD comparison
