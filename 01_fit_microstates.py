@@ -337,8 +337,8 @@ lines = [
     '    print()',
     '    print("  Assignments saved: " + str(assign_path))',
     '',
-    'print()',
-    'print("DONE  " + SFREQ_TAG)',
+'print()',
+'print("DONE  " + SFREQ_TAG)',
 ]
 
 # ── 2. Save cluster script locally ─────────────────────────
