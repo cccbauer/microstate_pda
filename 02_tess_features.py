@@ -31,6 +31,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--sfreq", type=int, default=250,
                     choices=[250, 500],
                     help="EEG sampling frequency (default: 250)")
+parser.add_argument("--overwrite", action="store_true")
 args   = parser.parse_args()
 SFREQ     = args.sfreq
 SFREQ_TAG = str(SFREQ) + "Hz"
@@ -65,6 +66,7 @@ lines = [
     'TR_SAMPLES    = ' + str(TR_SAMPLES),
     'N_MICROSTATES = ' + str(N_MICROSTATES),
     'MISSING_RUNS  = ' + str(MISSING_RUNS),
+    'OVERWRITE     = ' + str(args.overwrite),
     '',
     'TASK_RUNS = {',
     '    "rest":      ["01", "02"],',
@@ -93,7 +95,10 @@ lines = [
     '        raw.drop_channels(drop)',
     '    if raw.info["sfreq"] != SFREQ:',
     '        raw.resample(SFREQ, verbose=False)',
-    '    return (raw.get_data() * 1e6).astype(np.float32)',
+    '    data = (raw.get_data() * 1e6).astype(np.float32)',
+    '    # Mean-center across channels at each time point',
+    '    data -= data.mean(axis=0, keepdims=True)',
+    '    return data',
     '',
     'def compute_gfp(eeg):',
     '    return eeg.std(axis=0).astype(np.float32)',
@@ -134,7 +139,11 @@ lines = [
     '    n_maps = templates.shape[0]',
     '',
     '    # TESS Stage 1: spatial projection → T-hat (n_maps, n_samples)',
-    '    t_hat = (templates @ eeg).astype(np.float32)',
+    '    # Mean-center both templates and EEG before projection',
+    '    # (required for TESS — removes DC offset from dot product)',
+    '    templates_mc = templates - templates.mean(axis=1, keepdims=True)',
+    '    eeg_mc       = eeg - eeg.mean(axis=0, keepdims=True)',
+    '    t_hat = (templates_mc @ eeg_mc).astype(np.float32)',
     '',
     '    # HRF convolution + downsample per map',
     '    n_vols   = eeg.shape[1] // tr_samples',
@@ -185,10 +194,10 @@ lines = [
     '                        + "_" + SFREQ_TAG + "_features.npy")',
     '            out_path = OUT_DIR / out_name',
     '',
-    '            if out_path.exists():',
+    '            if out_path.exists() and not OVERWRITE:',
     '                print("  EXISTS (skip): " + out_name)',
     '                n_skipped += 1',
-    '                continue',
+    '                continue', 
     '',
     '            if not fif.exists():',
     '                print("  MISSING: " + fif_name)',
@@ -242,7 +251,8 @@ sbatch_lines = [
     "#SBATCH --mem=32G",
     "#SBATCH --account=" + SLURM_ACCOUNT,
     "",
-    PYTHON + " " + CLUSTER_BASE + "/scripts/" + script_name,
+    PYTHON + " " + CLUSTER_BASE + "/scripts/" + script_name
+        + (" --overwrite" if args.overwrite else ""),
 ]
 
 sbatch_name = "02_tess_features_" + SFREQ_TAG + ".sh"
