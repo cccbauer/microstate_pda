@@ -15,8 +15,8 @@ from scipy.signal import argrelmax
 EEG_ROOT      = Path("/projects/swglab/data/DMNELF/derivatives/eeg_preprocessed")
 OUT_DIR       = Path("/projects/swglab/data/DMNELF/analysis/MNE/jupyter/microstate_pda_v3")
 SUBJECTS      = ['sub-dmnelf001', 'sub-dmnelf004', 'sub-dmnelf005', 'sub-dmnelf006', 'sub-dmnelf007', 'sub-dmnelf008', 'sub-dmnelf009', 'sub-dmnelf010', 'sub-dmnelf011', 'sub-dmnelf1001', 'sub-dmnelf1002', 'sub-dmnelf1003']
-SFREQ         = 500
-SFREQ_TAG     = "500Hz"
+SFREQ         = 250
+SFREQ_TAG     = "250Hz"
 N_MICROSTATES = 7
 N_RESTARTS    = 20
 MAX_ITER      = 1000

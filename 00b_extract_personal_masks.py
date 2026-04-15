@@ -524,7 +524,7 @@ lines = [
     '        "dmn_yeo_corr2":       float(corr_dmn[dmn_comp2]),',
     '        "cen_yeo_corr1":       float(corr_cen[cen_comp]),',
     '        "cen_yeo_corr2":       float(corr_cen[cen_comp2]),',
-    '        "group_dmn_idx":       [3,6,22,29,35,38,58,60],',
+    '        "group_dmn_idx":       [3,6,29,35,38,58,60,61],',
     '        "group_cen_idx":       [4,31,47,48,50,51],',
     '        "n_voxels_mask":       N_VOXELS_MASK,',
     '        "n_ica_components":    N_COMPONENTS,',

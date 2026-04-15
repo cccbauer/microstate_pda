@@ -253,3 +253,134 @@ git log --oneline -5
 ```
 
 **Repo:** https://github.com/cccbauer/microstate_pda (private)
+
+
+
+
+PART 1 — HOW TO RUN
+===================
+
+Prerequisites
+
+Local machine:
+  conda activate base
+  pip install mne numpy pandas nibabel nilearn
+
+Cluster environments:
+  Main pipeline: $HOME/my_anaconda/bin/python
+  EEG preprocessing: /home/cccbauer/.conda/envs/eeg_preproc/bin/python
+
+
+Full pipeline run order
+
+  0a  BVA preprocessing          (manual, done once per subject)
+  0b  EEG full preprocessing     python eeg_preproc_deploy.py
+  0c  DiFuMo extraction          python 00_extract_difumo.py
+  0d  Personalized masks         python 00b_extract_personal_masks.py
+  0e  Add personal parcels       python 00c_add_personal_parcels.py
+  1   Fit microstates            python 01_fit_microstates.py
+  2   TESS features              python 02_tess_features.py
+  3   Compute PDA                python 03_compute_pda.py
+  4   Train decoder              python 04_train_decoder.py
+  5   Evaluate decoder           python 05_evaluate_decoder.py
+
+
+Step 0b — EEG preprocessing (250Hz and 500Hz run in parallel)
+
+  python eeg_preproc_deploy.py
+  python eeg_preproc_deploy.py --subject sub-dmnelf009
+  python eeg_preproc_deploy.py --subject sub-dmnelf009 --task rest --run 01
+  python eeg_preproc_deploy.py --overwrite
+
+  Output: derivatives/eeg_preprocessed/{subject}/ses-dmnelf/eeg/
+  QC images: .../eeg/qc/{subject}_..._qc_raw.png and _qc_preproc.png
+  Expected: 82 FIF files per sfreq (12 subjects x 7 runs minus 2 missing)
+
+  Check:
+  find /projects/swglab/data/DMNELF/derivatives/eeg_preprocessed
+    -name "*_desc-preproc250Hz_eeg.fif" | wc -l
+
+
+Step 0c — DiFuMo extraction
+
+  python 00_extract_difumo.py
+  Expected: 103 TSV files (105 minus 2 permanently missing raw data runs)
+
+  Check:
+  ls microstate_pda_v3/difumo_timeseries/*.tsv | wc -l
+
+
+Step 0d — Personalized masks
+
+  python 00b_extract_personal_masks.py
+  Expected: 15 parcel_weights.json files (one per subject)
+
+  Check:
+  ls /projects/swglab/data/DMNELF/derivatives/network_masks/*/*_parcel_weights.json | wc -l
+
+
+Step 0e — Add personal parcels to TSVs
+
+  python 00c_add_personal_parcels.py
+  Expected: all TSVs updated to 68 columns
+  (volume + time + 64 ROIs + DMN_personal + CEN_personal)
+
+
+Steps 1 through 5
+
+  python 01_fit_microstates.py
+  python 02_tess_features.py
+  python 03_compute_pda.py
+  python 04_train_decoder.py
+  python 05_evaluate_decoder.py
+
+
+Key paths
+
+  Raw EEG (BVA preprocessed):  /projects/swglab/data/DMNELF/rawdata_eeg/
+  EEG preprocessed FIF:        /projects/swglab/data/DMNELF/derivatives/eeg_preprocessed/
+  fMRIPrep BOLD:               /projects/swglab/data/DMNELF/derivatives/fmriprep_24.1.1/
+  DiFuMo timeseries:           microstate_pda_v3/difumo_timeseries/
+  Personalized masks:          /projects/swglab/data/DMNELF/derivatives/network_masks/
+  Microstate templates:        microstate_pda_v3/microstates/
+  TESS features:               microstate_pda_v3/features/
+  PDA targets:                 microstate_pda_v3/targets/
+  Decoder models:              microstate_pda_v3/models/
+  Results:                     microstate_pda_v3/results/
+  QC images:                   .../eeg_preprocessed/{subject}/.../eeg/qc/
+  SLURM logs:                  microstate_pda_v3/logs/
+
+
+Subject lists
+
+  Complete EEG+fMRI (10 subjects):
+    sub-dmnelf001, 004, 005, 006, 007, 008, 009, 010, 011, 1001
+
+  Partial EEG+fMRI — matched but fewer runs (2 subjects):
+    sub-dmnelf1002 (missing rest-02)
+    sub-dmnelf1003 (missing feedback-04)
+
+  fMRI only — no EEG acquired, no R128 marker (3 subjects):
+    sub-dmnelf002, sub-dmnelf003, sub-dmnelf999
+
+
+Troubleshooting
+
+  SCP fails with spaces in path: scp_to in utils.py wraps local path in
+  single quotes. Verify the function is up to date from git.
+
+  squeue format error: use --format=%.8i_%.8T_%.10M (no quotes, underscores
+  as separators instead of spaces).
+
+  ICLabel fails (no montage): eeg_preproc.py sets standard_1020 montage
+  before ICA automatically. If it fails, check that channel names match
+  the standard 10-20 system.
+
+  CEN/DMN swapped in masks: check cen_skipped_pcc field in the subject's
+  parcel_weights.json. The spatial constraint excludes components with
+  centroid |x| < 15mm AND y < -45mm from CEN selection to prevent
+  PCC/precuneus contamination.
+
+  fMRIPrep BOLD not found: verify fMRIPrep completed for that subject.
+  sacct -u cccbauer --format=JobID,State,ExitCode -S 2026-01-01 | grep fmriprep
+

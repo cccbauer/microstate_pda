@@ -20,31 +20,55 @@ from config import (
 
 def run_ssh(cmd, verbose=True):
     """Run a command on the cluster via SSH."""
-    full = "ssh " + CLUSTER_SSH + " 'bash -l -c \"" + cmd + "\"'"
+    full = "/usr/bin/ssh " + CLUSTER_SSH + " 'bash -l -c \"" + cmd + "\"'"
     result = subprocess.run(
         full, shell=True, capture_output=True, text=True
     )
     if verbose:
-        if result.stdout: print(result.stdout)
-        if result.stderr: print(result.stderr)
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            # Filter out known harmless cluster warnings
+            filtered = "\n".join([
+                line for line in result.stderr.split("\n")
+                if not any(x in line for x in [
+                    "flatpak",
+                    "libcrypto",
+                    "OPENSSL",
+                    "Loading matlab",
+                    "Loading requirement",
+                    "OpenJDK",
+                ])
+            ]).strip()
+            if filtered:
+                print(filtered)
     return result
 
 
 def scp_to(local_path, remote_path, verbose=True):
     """Copy a local file to the cluster."""
-    cmd = "scp " + str(local_path) + " " + CLUSTER_SSH + ":" + remote_path
+    cmd = ("/usr/bin/scp '" + str(local_path)
+           + "' " + CLUSTER_SSH + ":" + remote_path)
     result = subprocess.run(
         cmd, shell=True, capture_output=True, text=True
     )
     if verbose:
         if result.stdout: print(result.stdout)
         if result.stderr: print(result.stderr)
+    # Verify transfer
+    verify = run_ssh("ls " + remote_path + " 2>/dev/null || echo MISSING",
+                     verbose=False)
+    if "MISSING" in verify.stdout:
+        print("WARNING: SCP failed for " + str(local_path))
+    elif verbose:
+        print("Verified: " + remote_path)
     return result
 
 
 def scp_from(remote_path, local_path, verbose=True):
     """Copy a file from the cluster to local."""
-    cmd = "scp " + CLUSTER_SSH + ":" + remote_path + " " + str(local_path)
+    cmd = ("/usr/bin/scp " + CLUSTER_SSH + ":" + remote_path
+           + " " + str(local_path))
     result = subprocess.run(
         cmd, shell=True, capture_output=True, text=True
     )
