@@ -3,11 +3,12 @@
 # Deploys cluster script, submits SLURM job.
 #
 # What it does on the cluster:
-#   For each subject × task × run:
+#   For each subject x task x run:
 #   1. Load fMRIPrep preprocessed BOLD (MNI152NLin6Asym res-2)
 #   2. Extract timeseries from DiFuMo-64 probabilistic parcels
 #      using NiftiMapsMasker (weighted average per parcel)
-#   3. Save as TSV with columns: volume, time, ROI_01..ROI_64
+#      standardize="psc" — percent signal change normalization
+#   3. Save as TSV: volume, time, ROI_01..ROI_64
 #
 # Output:
 #   difumo_timeseries/
@@ -25,7 +26,6 @@ from config import (
 FMRIPREP_ROOT = "/projects/swglab/data/DMNELF/derivatives/fmriprep_24.1.1"
 DIFUMO_CACHE  = "/projects/swglab/software/nilearn_data"
 
-# Tasks and runs to process
 TASKS = {
     "rest":      ["01", "02"],
     "shortrest": ["01"],
@@ -38,7 +38,7 @@ lines = [
     '"""',
     '00_extract_difumo_cluster.py',
     'Extract DiFuMo-64 parcel timeseries from fMRIPrep BOLD.',
-    'Output: difumo_timeseries/{subject}_..._desc-difumo64_timeseries.tsv',
+    'Uses standardize="psc" (percent signal change).',
     '"""',
     'import sys',
     'sys.stdout.reconfigure(line_buffering=True)',
@@ -54,7 +54,9 @@ lines = [
     'CLUSTER_BASE  = Path("' + CLUSTER_BASE + '")',
     'DIFUMO_CACHE  = Path("' + DIFUMO_CACHE + '")',
     'OUT_DIR       = CLUSTER_BASE / "difumo_timeseries"',
+    'CACHE_DIR     = CLUSTER_BASE / "nilearn_cache"',
     'OUT_DIR.mkdir(parents=True, exist_ok=True)',
+    'CACHE_DIR.mkdir(parents=True, exist_ok=True)',
     'os.environ["NILEARN_DATA"] = str(DIFUMO_CACHE)',
     '',
     'SUBJECTS = ' + str(SUBJECTS),
@@ -64,7 +66,10 @@ lines = [
     'print("=" * 55)',
     'print("Loading DiFuMo-64 atlas")',
     'print("=" * 55)',
+    '',
     'from nilearn import datasets',
+    'from nilearn.maskers import NiftiMapsMasker',
+    '',
     'with warnings.catch_warnings():',
     '    warnings.simplefilter("ignore")',
     '    difumo = datasets.fetch_atlas_difumo(',
@@ -72,103 +77,87 @@ lines = [
     '        resolution_mm=2,',
     '        data_dir=str(DIFUMO_CACHE)',
     '    )',
-    'difumo_maps = difumo.maps if hasattr(difumo, "maps") else difumo["maps"]',
-    'print("DiFuMo maps: " + str(difumo_maps))',
     '',
-    '# Load labels',
-    'if hasattr(difumo, "labels"):',
-    '    labels = list(difumo.labels)',
-    'elif hasattr(difumo, "label_names"):',
-    '    labels = list(difumo.label_names)',
-    'else:',
-    '    labels = ["ROI_" + str(i+1).zfill(2) for i in range(64)]',
-    'print("Labels loaded: " + str(len(labels)))',
+    'atlas_img = difumo.maps',
+    'print("DiFuMo maps: " + str(atlas_img))',
     '',
-    '# ── Setup masker ──────────────────────────────────────',
-    'from nilearn.maskers import NiftiMapsMasker',
+    '# Always use ROI_01..ROI_64 for consistency',
+    'roi_cols = ["ROI_" + str(i+1).zfill(2) for i in range(64)]',
+    'print("ROI columns: " + str(len(roi_cols)))',
+    '',
+    '# ── Build masker ──────────────────────────────────────',
     'masker = NiftiMapsMasker(',
     '    maps_img=atlas_img,',
     '    standardize="psc",',
-    '    memory=str(CACHE_DIR / "nilearn_cache"),',
+    '    memory=str(CACHE_DIR),',
     '    verbose=0',
     ')',
     'masker.fit()',
-    'print("Masker fitted")',
+    'print("Masker fitted  standardize=psc")',
     '',
     '# ── Main loop ─────────────────────────────────────────',
     'print()',
     'print("=" * 55)',
-    'print("Extracting DiFuMo timeseries")',
+    'print("Extracting DiFuMo timeseries  (overwrite=True)")',
     'print("=" * 55)',
     '',
     'n_extracted = 0',
-    'n_skipped   = 0',
     'n_missing   = 0',
     '',
     'for subject in SUBJECTS:',
     '    for task, runs in TASKS.items():',
     '        for run in runs:',
     '',
-    '            # Output path',
-    '            tsv_name = (subject',
-    '                        + "_ses-dmnelf"',
+    '            tsv_name = (subject + "_ses-dmnelf"',
     '                        + "_task-" + task',
-    '                        + "_run-" + run',
+    '                        + "_run-"  + run',
     '                        + "_desc-difumo64_timeseries.tsv")',
     '            tsv_path = OUT_DIR / tsv_name',
     '',
-    '            if tsv_path.exists():',
-    '                pass  # overwrite — rerunning with psc normalization',
-    '',
-    '            # BOLD path',
-    '            bold_name = (subject',
-    '                         + "_ses-dmnelf"',
+    '            bold_name = (subject + "_ses-dmnelf"',
     '                         + "_task-" + task',
-    '                         + "_run-" + run',
+    '                         + "_run-"  + run',
     '                         + "_space-MNI152NLin6Asym_res-2"',
     '                         + "_desc-preproc_bold.nii.gz")',
-    '            bold_path = (FMRIPREP_ROOT / subject / "ses-dmnelf"',
-    '                         / "func" / bold_name)',
+    '            bold_path = (FMRIPREP_ROOT / subject',
+    '                         / "ses-dmnelf" / "func" / bold_name)',
     '',
     '            if not bold_path.exists():',
     '                print("  MISSING: " + bold_name)',
     '                n_missing += 1',
     '                continue',
     '',
-    '            print("  Extracting: " + bold_name)',
+    '            print("  Extracting: " + subject',
+    '                  + "  task-" + task + "  run-" + run)',
     '',
-'            # Extract timeseries',
-'            try:',
-'                with warnings.catch_warnings():',
-'                    warnings.simplefilter("ignore")',
-'                    ts = masker.transform(str(bold_path))',
-'            except Exception as e:',
-'                print("  ERROR: " + bold_name + " -- " + str(e))',
-'                n_missing += 1',
-'                continue',
+    '            try:',
+    '                with warnings.catch_warnings():',
+    '                    warnings.simplefilter("ignore")',
+    '                    ts = masker.transform(str(bold_path))',
+    '            except Exception as e:',
+    '                print("  ERROR: " + str(e))',
+    '                n_missing += 1',
+    '                continue',
     '',
     '            n_vols = ts.shape[0]',
     '            img    = nib.load(str(bold_path))',
     '            tr     = float(img.header.get_zooms()[3])',
     '            times  = np.arange(n_vols) * tr',
     '',
-    '            # Build dataframe',
-    '            col_names = ["ROI_" + str(i+1).zfill(2) for i in range(64)]',
-    '            df = pd.DataFrame(ts, columns=col_names)',
+    '            df = pd.DataFrame(ts, columns=roi_cols)',
     '            df.insert(0, "volume", np.arange(n_vols))',
     '            df.insert(1, "time",   times.round(4))',
     '',
-    '            # Save',
     '            df.to_csv(str(tsv_path), sep="\\t", index=False)',
-    '            print("  Saved: " + tsv_name',
-    '                  + "  shape=" + str(ts.shape))',
+    '            print("    shape=" + str(ts.shape)',
+    '                  + "  TR=" + str(round(tr, 3))',
+    '                  + "  PSC_mean=" + str(round(float(ts.mean()), 4)))',
     '            n_extracted += 1',
     '',
     'print()',
     'print("=" * 55)',
     'print("DONE")',
     'print("  Extracted: " + str(n_extracted))',
-    'print("  Skipped:   " + str(n_skipped))',
     'print("  Missing:   " + str(n_missing))',
     'print("=" * 55)',
 ]
@@ -211,7 +200,7 @@ with open(sbatch_path, "w") as f:
     f.write("\n".join(sbatch_lines))
 
 # ── 5. Deploy ──────────────────────────────────────────────
-print("\nDeploying scripts...")
+print("\nDeploying...")
 scp_to(script_path,
        CLUSTER_BASE + "/scripts/" + script_name,
        verbose=False)
@@ -219,7 +208,6 @@ scp_to(sbatch_path,
        CLUSTER_BASE + "/scripts/" + sbatch_name,
        verbose=False)
 print("Deployed: " + script_name)
-print("Deployed: " + sbatch_name)
 
 # ── 6. Submit ──────────────────────────────────────────────
 print("\nSubmitting SLURM job...")
@@ -232,7 +220,7 @@ for line in result.stdout.strip().split("\n"):
 
 # ── 7. Monitor ─────────────────────────────────────────────
 if job_id:
-    print("\nMonitoring job " + job_id + "  (Ctrl+C to stop watching)")
+    print("\nMonitoring job " + job_id + "  (Ctrl+C to stop)")
     print("-" * 55)
     try:
         while True:
@@ -248,14 +236,14 @@ if job_id:
                 print("Job finished — checking log...")
                 log = run_ssh(
                     "tail -30 " + CLUSTER_BASE
-                    + "/logs/difumo_extract_" + job_id + ".out 2>/dev/null",
+                    + "/logs/difumo_extract_" + job_id
+                    + ".out 2>/dev/null",
                     verbose=False
                 )
                 print(log.stdout)
                 break
             time.sleep(15)
     except KeyboardInterrupt:
-        print("\nStopped watching. Check manually:")
-        print("  squeue -j " + job_id)
+        print("\nStopped watching.")
         print("  tail -f " + CLUSTER_BASE
               + "/logs/difumo_extract_" + job_id + ".out")
