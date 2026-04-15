@@ -6,8 +6,7 @@ CLUSTER_USER   = "cccbauer"
 CLUSTER_HOST   = "explorer.northeastern.edu"
 CLUSTER_SSH    = CLUSTER_USER + "@" + CLUSTER_HOST
 SLURM_ACCOUNT  = "suewhit"
-PYTHON         = "$HOME/my_anaconda/bin/python"
-
+PYTHON         = "/home/cccbauer/.conda/envs/eeg_preproc/bin/python"
 # ── Cluster paths ──────────────────────────────────────────
 CLUSTER_BASE   = "/projects/swglab/data/DMNELF/analysis/MNE/jupyter/microstate_pda_v3"
 EEG_ROOT       = "/projects/swglab/data/DMNELF/derivatives/eeg_preprocessed"
