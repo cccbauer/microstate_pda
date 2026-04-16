@@ -25,6 +25,7 @@ TR            = 1.2
 TR_SAMPLES    = 600
 N_MICROSTATES = 7
 MISSING_RUNS  = {'sub-dmnelf1002': [('rest', '02')], 'sub-dmnelf1003': [('feedback', '04')]}
+OVERWRITE     = True
 
 TASK_RUNS = {
     "rest":      ["01", "02"],
@@ -53,7 +54,10 @@ def load_eeg(fif_path):
         raw.drop_channels(drop)
     if raw.info["sfreq"] != SFREQ:
         raw.resample(SFREQ, verbose=False)
-    return (raw.get_data() * 1e6).astype(np.float32)
+    data = (raw.get_data() * 1e6).astype(np.float32)
+    # Mean-center across channels at each time point
+    data -= data.mean(axis=1, keepdims=True)
+    return data
 
 def compute_gfp(eeg):
     return eeg.std(axis=0).astype(np.float32)
@@ -94,7 +98,11 @@ def compute_features(eeg, templates, tr_samples, sfreq):
     n_maps = templates.shape[0]
 
     # TESS Stage 1: spatial projection → T-hat (n_maps, n_samples)
-    t_hat = (templates @ eeg).astype(np.float32)
+    # Mean-center both templates and EEG before projection
+    # (required for TESS — removes DC offset from dot product)
+    templates_mc = templates - templates.mean(axis=1, keepdims=True)
+    eeg_mc       = eeg - eeg.mean(axis=1, keepdims=True)
+    t_hat = (templates_mc @ eeg_mc).astype(np.float32)
 
     # HRF convolution + downsample per map
     n_vols   = eeg.shape[1] // tr_samples
@@ -145,7 +153,7 @@ for subject in SUBJECTS:
                         + "_" + SFREQ_TAG + "_features.npy")
             out_path = OUT_DIR / out_name
 
-            if out_path.exists():
+            if out_path.exists() and not OVERWRITE:
                 print("  EXISTS (skip): " + out_name)
                 n_skipped += 1
                 continue

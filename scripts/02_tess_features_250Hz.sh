@@ -8,4 +8,4 @@
 #SBATCH --mem=32G
 #SBATCH --account=suewhit
 
-$HOME/my_anaconda/bin/python /projects/swglab/data/DMNELF/analysis/MNE/jupyter/microstate_pda_v3/scripts/02_tess_features_250Hz_cluster.py
+/home/cccbauer/.conda/envs/eeg_preproc/bin/python /projects/swglab/data/DMNELF/analysis/MNE/jupyter/microstate_pda_v3/scripts/02_tess_features_250Hz_cluster.py --overwrite

@@ -25,6 +25,7 @@ TR            = 1.2
 TR_SAMPLES    = 300
 N_MICROSTATES = 7
 MISSING_RUNS  = {'sub-dmnelf1002': [('rest', '02')], 'sub-dmnelf1003': [('feedback', '04')]}
+OVERWRITE     = True
 
 TASK_RUNS = {
     "rest":      ["01", "02"],
@@ -53,7 +54,10 @@ def load_eeg(fif_path):
         raw.drop_channels(drop)
     if raw.info["sfreq"] != SFREQ:
         raw.resample(SFREQ, verbose=False)
-    return (raw.get_data() * 1e6).astype(np.float32)
+    data = (raw.get_data() * 1e6).astype(np.float32)
+    # Mean-center across channels at each time point
+    data -= data.mean(axis=1, keepdims=True)
+    return data
 
 def compute_gfp(eeg):
     return eeg.std(axis=0).astype(np.float32)
@@ -94,14 +98,17 @@ def compute_features(eeg, templates, tr_samples, sfreq):
     n_maps = templates.shape[0]
 
     # TESS Stage 1: spatial projection → T-hat (n_maps, n_samples)
-    t_hat = (templates @ eeg).astype(np.float32)
+    # Mean-center both templates and EEG before projection
+    # (required for TESS — removes DC offset from dot product)
+    templates_mc = templates - templates.mean(axis=1, keepdims=True)
+    eeg_mc       = eeg - eeg.mean(axis=1, keepdims=True)
+    t_hat = (templates_mc @ eeg_mc).astype(np.float32)
 
-    # HRF convolution + downsample per map
+    # Downsample T-hat to TR (no HRF — predicting raw BOLD directly)
     n_vols   = eeg.shape[1] // tr_samples
     t_hat_tr = np.zeros((n_maps, n_vols), dtype=np.float32)
     for m in range(n_maps):
-        conv        = convolve_hrf(t_hat[m], hrf)
-        t_hat_tr[m] = downsample_to_tr(conv, tr_samples)
+        t_hat_tr[m] = downsample_to_tr(t_hat[m], tr_samples)
 
     # GFP and GMD → downsample
     gfp_tr = downsample_to_tr(compute_gfp(eeg),  tr_samples)
@@ -142,10 +149,10 @@ for subject in SUBJECTS:
 
             out_name = (subject + "_task-" + task
                         + "_run-" + run
-                        + "_" + SFREQ_TAG + "_features.npy")
+                        + "_" + SFREQ_TAG + "_nohrf_features.npy")
             out_path = OUT_DIR / out_name
 
-            if out_path.exists():
+            if out_path.exists() and not OVERWRITE:
                 print("  EXISTS (skip): " + out_name)
                 n_skipped += 1
                 continue
