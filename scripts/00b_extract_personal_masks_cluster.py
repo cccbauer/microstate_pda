@@ -2,12 +2,12 @@
 """
 00b_extract_personal_masks_cluster.py
 Adapted from pineuro mask_extraction.py.
-Extract personalized DMN/CEN masks via CanICA + Yeo-17 correlation.
+Extract personalized DMN/CEN masks via CanICA + Yeo-7 correlation.
+Uses Yeo-7 single labels for unambiguous DMN/CEN reference:
+  DMN: Default network = label 7
+  CEN: Frontoparietal network = label 6
 fMRIPrep BOLD already in MNI space — no ANTs registration needed.
-
-CEN spatial constraint: skip components with midline posterior
-centroid (|x|<15mm AND y<-45mm) to exclude PCC/precuneus,
-which are DMN hubs that leak into ContA Yeo label.
+CEN spatial constraint: skip midline posterior components (PCC).
 """
 import sys
 sys.stdout.reconfigure(line_buffering=True)
@@ -17,9 +17,17 @@ from pathlib import Path
 import os
 import warnings
 import nibabel as nib
+import matplotlib
+matplotlib.use("Agg")  # non-interactive backend for cluster
+import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap as _LSC
+from nilearn import plotting
+# Solid bright colors: DMN=blue, CEN=red
+_CMAP_DMN = _LSC.from_list("dmn", ["#0077FF", "#0077FF"])
+_CMAP_CEN = _LSC.from_list("cen", ["#FF1A00", "#FF1A00"])
 
 # ── Paths ─────────────────────────────────────────────
-FMRIPREP_ROOT = Path("/projects/swglab/data/DMNELF/derivatives/fmriprep_24.1.1")
+FMRIPREP_ROOT = Path("/projects/swglab/data/DMNELF/derivatives/fmriprep_25.2.5_fmap")
 MASKS_ROOT    = Path("/projects/swglab/data/DMNELF/derivatives/network_masks")
 DIFUMO_CACHE  = Path("/projects/swglab/software/nilearn_data")
 MASKS_ROOT.mkdir(parents=True, exist_ok=True)
@@ -31,11 +39,11 @@ SUBJECTS = ['sub-dmnelf001', 'sub-dmnelf002', 'sub-dmnelf003', 'sub-dmnelf004', 
 N_COMPONENTS  = 35   # matching real-time pipeline (Bloom 2023)
 N_VOXELS_MASK = 2000 # top N voxels per mask
 
-# Yeo-17 labels (verified spatially):
-# DMN: DefaultA(14)=PCC, DefaultB(15)=medTL, DefaultC(16)=mPFC
-# CEN: ContA(11)=lat frontoparietal, ContB(12)=frontoparietal
-YEO_DMN_LABELS = [14, 15, 16]
-YEO_CEN_LABELS = [11, 12]
+# Yeo-7 labels (unambiguous single-label DMN and CEN)
+# Label 7 = Default network (PCC + mPFC + angular gyrus)
+# Label 6 = Frontoparietal network (IPS + dlPFC bilateral)
+YEO_DMN_LABEL = 7
+YEO_CEN_LABEL = 6
 
 # CEN spatial constraint: exclude midline posterior components
 # PCC/precuneus signature: |x| < 15mm AND y < -45mm
@@ -49,11 +57,18 @@ print("=" * 55)
 from nilearn import datasets
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
-    yeo = datasets.fetch_atlas_yeo_2011()
-yeo_path = yeo.thick_17 if hasattr(yeo, "thick_17") else yeo["thick_17"]
+    yeo = datasets.fetch_atlas_yeo_2011(n_networks=7, thickness="thick")
+yeo_path = yeo.maps
+print("Yeo atlas_type: " + str(getattr(yeo, "atlas_type", "N/A")))
+print("Yeo labels:     " + str(getattr(yeo, "labels", "N/A")))
 yeo_img  = nib.load(yeo_path)
 yeo_data = np.squeeze(yeo_img.get_fdata()).astype(np.int32)
-print("Yeo-17 shape: " + str(yeo_data.shape))
+print("Yeo-7 shape: " + str(yeo_data.shape))
+
+yeo_dmn = (yeo_data == YEO_DMN_LABEL).astype(np.float32)
+yeo_cen = (yeo_data == YEO_CEN_LABEL).astype(np.float32)
+print("Yeo-7 DMN voxels (label 7): " + str(int(yeo_dmn.sum())))
+print("Yeo-7 CEN voxels (label 6): " + str(int(yeo_cen.sum())))
 
 difumo = datasets.fetch_atlas_difumo(
     dimension=64, resolution_mm=2,
@@ -119,7 +134,7 @@ def top_n_mask(component, n_voxels, affine):
     return nib.Nifti1Image(binary, affine)
 
 def get_centroid_mni(ic, components, aff, n_top=500):
-    """MNI centroid of the top N voxels of component ic."""
+    """MNI centroid of top N absolute-value voxels of component ic."""
     comp   = components[..., ic]
     thresh = np.sort(np.abs(comp).ravel())[-n_top]
     xi, yi, zi = np.where(np.abs(comp) >= thresh)
@@ -130,8 +145,8 @@ def get_centroid_mni(ic, components, aff, n_top=500):
 
 def is_midline_posterior(ic, components, aff):
     """
-    Returns True if component centroid is midline posterior.
-    Flags PCC/precuneus (DMN hubs leaking into ContA Yeo label).
+    True if component centroid is midline posterior.
+    Flags PCC/precuneus leaking into CEN selection.
     Criterion: |x| < 15mm AND y < -45mm
     """
     cx, cy, cz = get_centroid_mni(ic, components, aff)
@@ -164,8 +179,59 @@ for subject in SUBJECTS:
     out_cen     = sub_dir / (prefix + "_cen_mask.nii.gz")
     out_weights = sub_dir / (prefix + "_parcel_weights.json")
 
+    out_png = sub_dir / (prefix + "_masks.png")
     if out_dmn.exists() and out_cen.exists() and out_weights.exists():
-        print("  EXISTS (skip): " + subject)
+        if out_png.exists():
+            print("  EXISTS (skip): " + subject)
+            continue
+        # masks exist but PNG missing — generate from saved files
+        print("  EXISTS: generating missing PNG for " + subject)
+        with open(str(out_weights)) as f:
+            w = json.load(f)
+        dmn_mask = nib.load(str(out_dmn))
+        cen_mask = nib.load(str(out_cen))
+        _dmn_c1 = w["dmn_ica_component1"]
+        _dmn_c2 = w["dmn_ica_component2"]
+        _cen_c1 = w["cen_ica_component1"]
+        _cen_c2 = w["cen_ica_component2"]
+        _r_d1   = w["dmn_yeo_corr1"]
+        _r_d2   = w["dmn_yeo_corr2"]
+        _r_c1   = w["cen_yeo_corr1"]
+        _r_c2   = w["cen_yeo_corr2"]
+        fig = plt.figure(figsize=(16, 10))
+        fig.suptitle(
+            subject + "  |  DMN (blue)  CEN (red)"
+            + "\nDMN ICs: " + str(_dmn_c1) + "," + str(_dmn_c2)
+            + "   r=" + "{:.2f}".format(_r_d1)
+            + "," + "{:.2f}".format(_r_d2)
+            + "   CEN ICs: " + str(_cen_c1) + "," + str(_cen_c2)
+            + "   r=" + "{:.2f}".format(_r_c1)
+            + "," + "{:.2f}".format(_r_c2),
+            fontsize=10, fontweight="bold"
+        )
+        ax0 = fig.add_axes([0.0, 0.52, 1.0, 0.44])
+        disp0 = plotting.plot_glass_brain(
+            None, axes=ax0, figure=fig,
+            title="Glass brain: DMN (red) + CEN (blue)",
+            display_mode="lyrz", plot_abs=False
+        )
+        disp0.add_overlay(dmn_mask, cmap=_CMAP_DMN, alpha=1.0)
+        disp0.add_overlay(cen_mask, cmap=_CMAP_CEN, alpha=0.9)
+        ax1 = fig.add_axes([0.0, 0.02, 0.5, 0.44])
+        plotting.plot_roi(
+            dmn_mask, axes=ax1, figure=fig,
+            title="DMN — axial slices", cmap=_CMAP_DMN,
+            display_mode="z", cut_coords=7
+        )
+        ax2 = fig.add_axes([0.5, 0.02, 0.5, 0.44])
+        plotting.plot_roi(
+            cen_mask, axes=ax2, figure=fig,
+            title="CEN — axial slices", cmap=_CMAP_CEN,
+            display_mode="z", cut_coords=7
+        )
+        plt.savefig(str(out_png), dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        print("  Saved: " + str(out_png.name))
         continue
 
     # ── Load BOLD and brain mask ───────────────────────
@@ -222,14 +288,7 @@ for subject in SUBJECTS:
     aff            = components_img.affine
     print("  Components shape: " + str(components.shape))
 
-    # ── Resample Yeo to BOLD space ────────────────────
-    yeo_dmn = np.zeros_like(yeo_data, dtype=np.float32)
-    yeo_cen = np.zeros_like(yeo_data, dtype=np.float32)
-    for l in YEO_DMN_LABELS:
-        yeo_dmn[yeo_data == l] = 1.0
-    for l in YEO_CEN_LABELS:
-        yeo_cen[yeo_data == l] = 1.0
-
+    # ── Resample Yeo-7 to BOLD space ──────────────────
     yeo_dmn_r = np.squeeze(resample_to(
         nib.Nifti1Image(yeo_dmn, yeo_img.affine),
         components_img
@@ -239,9 +298,9 @@ for subject in SUBJECTS:
         components_img
     ).get_fdata())
 
-    print("  Yeo DMN voxels in BOLD space: "
+    print("  Yeo-7 DMN voxels in BOLD space: "
           + str(int((yeo_dmn_r > 0).sum())))
-    print("  Yeo CEN voxels in BOLD space: "
+    print("  Yeo-7 CEN voxels in BOLD space: "
           + str(int((yeo_cen_r > 0).sum())))
 
     # ── Brain mask for correlation ─────────────────────
@@ -282,23 +341,31 @@ for subject in SUBJECTS:
               + flag)
 
     # ── Select DMN: top 2 by absolute correlation ─────
+    # Yeo-7 Default covers full DMN (PCC+mPFC) in one label
+    # so top-2 should naturally capture both subregions
     dmn_comp  = int(dmn_sorted[0])
     dmn_comp2 = int(dmn_sorted[1])
     used      = {dmn_comp, dmn_comp2}
 
-    # ── Select CEN: top 2 excluding midline posterior ─
+    # ── Select CEN: skip midline posterior (PCC leak) ─
     cen_comp  = None
     cen_comp2 = None
     skipped   = []
+
     for ic in cen_sorted:
         ic = int(ic)
         if ic in used:
             continue
-        if is_midline_posterior(ic, components, aff):
+        dmn_contaminated = abs(corr_dmn[ic]) > 0.5 * abs(corr_cen[ic])
+        if is_midline_posterior(ic, components, aff) or dmn_contaminated:
             cx, cy, cz = get_centroid_mni(ic, components, aff)
+            reason = "PCC" if is_midline_posterior(ic, components, aff) else "DMN-overlap"
             skipped.append("IC" + str(ic)
+                           + " [" + reason + "]"
                            + " (x=" + str(round(cx,1))
-                           + " y=" + str(round(cy,1)) + ")")
+                           + " y=" + str(round(cy,1)) + ")"
+                           + " r_dmn=" + "{:.2f}".format(corr_dmn[ic])
+                           + " r_cen=" + "{:.2f}".format(corr_cen[ic]))
             continue
         if cen_comp is None:
             cen_comp = ic
@@ -311,9 +378,9 @@ for subject in SUBJECTS:
     if skipped:
         print("  Skipped PCC components: " + ", ".join(skipped))
 
-    # Fallback if constraint filtered too aggressively
+    # Fallback if constraint too aggressive
     if cen_comp is None or cen_comp2 is None:
-        print("  WARNING: fallback — relaxing spatial constraint")
+        print("  WARNING: CEN fallback — relaxing constraint")
         for ic in cen_sorted:
             ic = int(ic)
             if ic not in used:
@@ -325,14 +392,22 @@ for subject in SUBJECTS:
                     used.add(ic)
                     break
 
+    cx1,cy1,cz1 = get_centroid_mni(dmn_comp,  components, aff)
+    cx2,cy2,cz2 = get_centroid_mni(dmn_comp2, components, aff)
+    cx3,cy3,cz3 = get_centroid_mni(cen_comp,  components, aff)
+    cx4,cy4,cz4 = get_centroid_mni(cen_comp2, components, aff)
     print("  Selected DMN IC1: IC" + str(dmn_comp)
-          + "  r=" + "{:+.3f}".format(corr_dmn[dmn_comp]))
+          + "  r=" + "{:+.3f}".format(corr_dmn[dmn_comp])
+          + "  ctr=(" + str(round(cx1,0)) + "," + str(round(cy1,0)) + "," + str(round(cz1,0)) + ")")
     print("  Selected DMN IC2: IC" + str(dmn_comp2)
-          + "  r=" + "{:+.3f}".format(corr_dmn[dmn_comp2]))
+          + "  r=" + "{:+.3f}".format(corr_dmn[dmn_comp2])
+          + "  ctr=(" + str(round(cx2,0)) + "," + str(round(cy2,0)) + "," + str(round(cz2,0)) + ")")
     print("  Selected CEN IC1: IC" + str(cen_comp)
-          + "  r=" + "{:+.3f}".format(corr_cen[cen_comp]))
+          + "  r=" + "{:+.3f}".format(corr_cen[cen_comp])
+          + "  ctr=(" + str(round(cx3,0)) + "," + str(round(cy3,0)) + "," + str(round(cz3,0)) + ")")
     print("  Selected CEN IC2: IC" + str(cen_comp2)
-          + "  r=" + "{:+.3f}".format(corr_cen[cen_comp2]))
+          + "  r=" + "{:+.3f}".format(corr_cen[cen_comp2])
+          + "  ctr=(" + str(round(cx4,0)) + "," + str(round(cy4,0)) + "," + str(round(cz4,0)) + ")")
 
     # ── Sign-correct then z-score combine ─────────────
     dmn_c1 = components[..., dmn_comp].copy()
@@ -412,12 +487,12 @@ for subject in SUBJECTS:
         "dmn_yeo_corr2":       float(corr_dmn[dmn_comp2]),
         "cen_yeo_corr1":       float(corr_cen[cen_comp]),
         "cen_yeo_corr2":       float(corr_cen[cen_comp2]),
-        "group_dmn_idx":       [3,6,22,29,35,38,58,60],
+        "group_dmn_idx":       [3,6,29,35,38,58,60,61],
         "group_cen_idx":       [4,31,47,48,50,51],
         "n_voxels_mask":       N_VOXELS_MASK,
         "n_ica_components":    N_COMPONENTS,
-        "yeo_dmn_labels":      YEO_DMN_LABELS,
-        "yeo_cen_labels":      YEO_CEN_LABELS,
+        "yeo_dmn_label":       YEO_DMN_LABEL,
+        "yeo_cen_label":       YEO_CEN_LABEL,
         "cen_excl_x":          CEN_EXCL_X,
         "cen_excl_y":          CEN_EXCL_Y,
         "cen_skipped_pcc":     skipped,
@@ -425,6 +500,103 @@ for subject in SUBJECTS:
     with open(str(out_weights), "w") as f:
         json.dump(weights_dict, f, indent=2)
     print("  Saved: " + str(out_weights.name))
+
+    # ── Visualize masks ───────────────────────────────────
+    out_png = sub_dir / (prefix + "_masks.png")
+    fig = plt.figure(figsize=(16, 10))
+    fig.suptitle(
+        subject + "  |  DMN (blue)  CEN (red)"
+        + "\nDMN ICs: " + str(dmn_comp) + "," + str(dmn_comp2)
+        + "   r=" + "{:.2f}".format(corr_dmn[dmn_comp])
+        + "," + "{:.2f}".format(corr_dmn[dmn_comp2])
+        + "   CEN ICs: " + str(cen_comp) + "," + str(cen_comp2)
+        + "   r=" + "{:.2f}".format(corr_cen[cen_comp])
+        + "," + "{:.2f}".format(corr_cen[cen_comp2]),
+        fontsize=10, fontweight="bold"
+    )
+    ax0 = fig.add_axes([0.0, 0.52, 1.0, 0.44])
+    disp0 = plotting.plot_glass_brain(
+        None, axes=ax0, figure=fig,
+        title="Glass brain: DMN (red) + CEN (blue)",
+        display_mode="lyrz", plot_abs=False
+    )
+    disp0.add_overlay(dmn_mask, cmap=_CMAP_DMN, alpha=1.0)
+    disp0.add_overlay(cen_mask, cmap=_CMAP_CEN, alpha=0.9)
+    ax1 = fig.add_axes([0.0, 0.02, 0.5, 0.44])
+    plotting.plot_roi(
+        dmn_mask, axes=ax1, figure=fig,
+        title="DMN — axial slices", cmap=_CMAP_DMN,
+        display_mode="z", cut_coords=7
+    )
+    ax2 = fig.add_axes([0.5, 0.02, 0.5, 0.44])
+    plotting.plot_roi(
+        cen_mask, axes=ax2, figure=fig,
+        title="CEN — axial slices", cmap=_CMAP_CEN,
+        display_mode="z", cut_coords=7
+    )
+    plt.savefig(str(out_png), dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print("  Saved: " + str(out_png.name))
+
+
+# ── Overview: all subjects side by side ─────────────────────
+print()
+print("=" * 55)
+print("Generating all-subjects overview PNG")
+print("=" * 55)
+
+out_overview = MASKS_ROOT / "all_subjects_masks_overview.png"
+
+subs_ok = []
+for subject in SUBJECTS:
+    sub_dir = MASKS_ROOT / subject
+    prefix  = subject + "_space-MNI152NLin6Asym_res-2"
+    p_dmn = sub_dir / (prefix + "_dmn_mask.nii.gz")
+    p_cen = sub_dir / (prefix + "_cen_mask.nii.gz")
+    if p_dmn.exists() and p_cen.exists():
+        subs_ok.append((subject, p_dmn, p_cen))
+
+if subs_ok:
+    n     = len(subs_ok)
+    row_h = 1.0 / n
+    fig_ov = plt.figure(figsize=(18, 3.0 * n))
+    fig_ov.suptitle(
+        "All subjects  |  DMN (blue)  CEN (red)",
+        fontsize=14, fontweight="bold"
+    )
+    for i, (subject, p_dmn, p_cen) in enumerate(subs_ok):
+        dmn_img = nib.load(str(p_dmn))
+        cen_img = nib.load(str(p_cen))
+        y_bot = (n - 1 - i) * row_h
+        pad   = 0.005
+        # glass brain with both masks: left 50%
+        ax_gb = fig_ov.add_axes([0.0, y_bot + pad, 0.50, row_h - 2 * pad])
+        disp = plotting.plot_glass_brain(
+            None, axes=ax_gb, figure=fig_ov,
+            display_mode="lyrz", plot_abs=False,
+            title=subject
+        )
+        disp.add_overlay(dmn_img, cmap=_CMAP_DMN, alpha=1.0)
+        disp.add_overlay(cen_img, cmap=_CMAP_CEN, alpha=0.9)
+        # DMN axial slices: middle 24%
+        ax_d = fig_ov.add_axes([0.51, y_bot + pad, 0.24, row_h - 2 * pad])
+        plotting.plot_roi(
+            dmn_img, axes=ax_d, figure=fig_ov,
+            title="DMN" if i == 0 else None,
+            cmap=_CMAP_DMN, display_mode="z", cut_coords=5
+        )
+        # CEN axial slices: right 24%
+        ax_c = fig_ov.add_axes([0.76, y_bot + pad, 0.24, row_h - 2 * pad])
+        plotting.plot_roi(
+            cen_img, axes=ax_c, figure=fig_ov,
+            title="CEN" if i == 0 else None,
+            cmap=_CMAP_CEN, display_mode="z", cut_coords=5
+        )
+    plt.savefig(str(out_overview), dpi=150, bbox_inches="tight")
+    plt.close(fig_ov)
+    print("  Saved: " + str(out_overview))
+else:
+    print("  No masks found — skipping overview")
 
 print()
 print("=" * 55)

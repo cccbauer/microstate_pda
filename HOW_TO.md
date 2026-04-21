@@ -73,7 +73,7 @@ ssh cccbauer@explorer.northeastern.edu 'bash -l -c "squeue -u cccbauer --format=
 **Check if fMRIPrep succeeded for a subject:**
 ```bash
 ssh cccbauer@explorer.northeastern.edu 'bash -l -c "
-ls /projects/swglab/data/DMNELF/derivatives/fmriprep_24.1.1/sub-dmnelf001.html
+ls /projects/swglab/data/DMNELF/derivatives/fmriprep_25.2.5_fmap/sub-dmnelf001.html
 "'
 ```
 
@@ -87,7 +87,7 @@ python 00_extract_difumo.py
 ```
 
 This extracts DiFuMo-64 parcel timeseries from fMRIPrep BOLD output.  
-**Input:** `fmriprep_24.1.1/{subject}/ses-dmnelf/func/*preproc_bold.nii.gz`  
+**Input:** `fmriprep_25.2.5_fmap/{subject}/ses-dmnelf/func/*preproc_bold.nii.gz`  
 **Output:** `difumo_timeseries/{subject}_ses-dmnelf_task-{task}_run-{run}_desc-difumo64_timeseries.tsv`
 
 ---
@@ -184,7 +184,7 @@ python 05_evaluate_decoder.py
 | Project | `/projects/swglab/data/DMNELF/analysis/MNE/jupyter/microstate_pda_v3/` |
 | EEG preprocessed | `/projects/swglab/data/DMNELF/analysis/MNE/bids/derivatives/preprocessed/` |
 | DiFuMo timeseries | `/projects/swglab/data/DMNELF/analysis/MNE/jupyter/neurobolt/difumo_timeseries/` |
-| fMRIPrep DMNELF | `/projects/swglab/data/DMNELF/derivatives/fmriprep_24.1.1/` |
+| fMRIPrep DMNELF | `/projects/swglab/data/DMNELF/derivatives/fmriprep_25.2.5_fmap/` |
 | fMRIPrep rtBPD | `/projects/swglab/data/rtBPD/derivatives/fmriprep_24.1.1/` |
 | SLURM logs | `/projects/swglab/data/DMNELF/analysis/MNE/jupyter/microstate_pda_v3/logs/` |
 
@@ -339,7 +339,7 @@ Key paths
 
   Raw EEG (BVA preprocessed):  /projects/swglab/data/DMNELF/rawdata_eeg/
   EEG preprocessed FIF:        /projects/swglab/data/DMNELF/derivatives/eeg_preprocessed/
-  fMRIPrep BOLD:               /projects/swglab/data/DMNELF/derivatives/fmriprep_24.1.1/
+  fMRIPrep BOLD:               /projects/swglab/data/DMNELF/derivatives/fmriprep_25.2.5_fmap/
   DiFuMo timeseries:           microstate_pda_v3/difumo_timeseries/
   Personalized masks:          /projects/swglab/data/DMNELF/derivatives/network_masks/
   Microstate templates:        microstate_pda_v3/microstates/

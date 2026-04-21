@@ -8,4 +8,4 @@
 #SBATCH --mem=64G
 #SBATCH --account=suewhit
 
-$HOME/my_anaconda/bin/python /projects/swglab/data/DMNELF/analysis/MNE/jupyter/microstate_pda_v3/scripts/00b_extract_personal_masks_cluster.py
+/home/cccbauer/.conda/envs/eeg_preproc/bin/python /projects/swglab/data/DMNELF/analysis/MNE/jupyter/microstate_pda_v3/scripts/00b_extract_personal_masks_cluster.py

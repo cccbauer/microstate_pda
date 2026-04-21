@@ -23,7 +23,7 @@ from config import (
     SUBJECTS, LOCAL_BASE
 )
 
-FMRIPREP_ROOT = "/projects/swglab/data/DMNELF/derivatives/fmriprep_24.1.1"
+FMRIPREP_ROOT = "/projects/swglab/data/DMNELF/derivatives/fmriprep_25.2.5_fmap"
 DIFUMO_CACHE  = "/projects/swglab/software/nilearn_data"
 
 TASKS = {

@@ -8,4 +8,4 @@
 #SBATCH --mem=16G
 #SBATCH --account=suewhit
 
-/home/cccbauer/.conda/envs/eeg_preproc/bin/python /projects/swglab/data/DMNELF/analysis/MNE/jupyter/microstate_pda_v3/scripts/03_compute_pda_cluster.py --overwrite
+/home/cccbauer/.conda/envs/eeg_preproc/bin/python /projects/swglab/data/DMNELF/analysis/MNE/jupyter/microstate_pda_v3/scripts/03_compute_pda_cluster.py

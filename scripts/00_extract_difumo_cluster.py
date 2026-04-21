@@ -14,7 +14,7 @@ import warnings
 import nibabel as nib
 
 # ── Paths ─────────────────────────────────────────────
-FMRIPREP_ROOT = Path("/projects/swglab/data/DMNELF/derivatives/fmriprep_24.1.1")
+FMRIPREP_ROOT = Path("/projects/swglab/data/DMNELF/derivatives/fmriprep_25.2.5_fmap")
 CLUSTER_BASE  = Path("/projects/swglab/data/DMNELF/analysis/MNE/jupyter/microstate_pda_v3")
 DIFUMO_CACHE  = Path("/projects/swglab/software/nilearn_data")
 OUT_DIR       = CLUSTER_BASE / "difumo_timeseries"

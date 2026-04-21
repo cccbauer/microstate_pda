@@ -25,7 +25,7 @@ TR            = 1.2
 TR_SAMPLES    = 300
 N_MICROSTATES = 7
 MISSING_RUNS  = {'sub-dmnelf1002': [('rest', '02')], 'sub-dmnelf1003': [('feedback', '04')]}
-OVERWRITE     = True
+OVERWRITE     = False
 
 TASK_RUNS = {
     "rest":      ["01", "02"],

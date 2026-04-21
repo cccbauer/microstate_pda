@@ -11,7 +11,7 @@ PYTHON         = "/home/cccbauer/.conda/envs/eeg_preproc/bin/python"
 CLUSTER_BASE   = "/projects/swglab/data/DMNELF/analysis/MNE/jupyter/microstate_pda_v3"
 EEG_ROOT       = "/projects/swglab/data/DMNELF/derivatives/eeg_preprocessed"
 DIFUMO_ROOT    = "/projects/swglab/data/DMNELF/analysis/MNE/jupyter/neurobolt/difumo_timeseries"
-CONFOUND_ROOT  = "/projects/swglab/data/DMNELF/derivatives/fmriprep_24.1.1_wo_FS"
+CONFOUND_ROOT  = "/projects/swglab/data/DMNELF/derivatives/fmriprep_25.2.5_fmap"
 EEG_PREP_ROOT = Path("/projects/swglab/data/DMNELF/derivatives/eeg_preprocessed")
 
 # ── Local paths (machine-agnostic) ─────────────────────────

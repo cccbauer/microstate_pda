@@ -18,7 +18,7 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 SUBJECTS     = ['sub-dmnelf001', 'sub-dmnelf004', 'sub-dmnelf005', 'sub-dmnelf006', 'sub-dmnelf007', 'sub-dmnelf008', 'sub-dmnelf009', 'sub-dmnelf010', 'sub-dmnelf011', 'sub-dmnelf1001', 'sub-dmnelf1002', 'sub-dmnelf1003']
 MISSING_RUNS = {'sub-dmnelf1002': [('rest', '02')], 'sub-dmnelf1003': [('feedback', '04')]}
-OVERWRITE    = True
+OVERWRITE    = False
 
 # DiFuMo-64 group indices (0-based)
 # Verified against labels_64_dictionary.csv (Dadi et al. 2020)

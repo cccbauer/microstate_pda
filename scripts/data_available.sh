@@ -16,7 +16,7 @@ STUDY="${1:-dmnelf}"
 # ── Study-specific config ──────────────────────────────────
 if [ "$STUDY" = "dmnelf" ]; then
     RAWDATA="/projects/swglab/data/DMNELF/rawdata"
-    FMRIPREP="/projects/swglab/data/DMNELF/derivatives/fmriprep_24.1.1"
+    FMRIPREP="/projects/swglab/data/DMNELF/derivatives/fmriprep_25.2.5_fmap"
     PREFIX="sub-dmnelf"
     SUBJECTS=$(ls $RAWDATA | grep "^sub-dmnelf" | sort)
     SESSIONS="ses-dmnelf"
