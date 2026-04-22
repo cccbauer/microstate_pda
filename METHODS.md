@@ -396,6 +396,87 @@ target r > 0.25 as a minimum threshold for the decoder to be clinically
 meaningful.
 
 
+Step 6 — Microstate Epoch Statistics
+
+To identify which microstates best differentiate high-PDA from low-PDA brain
+states, and which combination of microstates carries the most discriminative
+information, we apply a three-tier statistical analysis implemented in
+06_stats_microstate_pda.py.
+
+Primary analysis — Two-stage t-test. For each subject, all TRs are split
+into PDA-positive epochs (pda_direct >= 0, CEN dominant) and PDA-negative
+epochs (pda_direct < 0, DMN dominant) using the personalized-mask PDA signal
+(pda_direct) as the ground truth, matching the real-time MURFI computation.
+For each of the 7 microstate T-hat coefficients, a Welch two-sample t-test
+(unequal variance) is applied between PDA-positive and PDA-negative T-hat
+distributions. Effect size is quantified as pooled-variance Cohen's d.
+Within each subject, p-values are corrected across the 7 microstates using
+the Benjamini-Hochberg false discovery rate (FDR, alpha = 0.05). At the
+group level, the per-subject mean differences (PDA+ mean minus PDA- mean)
+for each microstate are submitted to a one-sample t-test against zero,
+implementing the standard second-level random-effects summary-statistics
+approach used in neuroimaging group analyses (equivalent to FSL/SPM
+random-effects inference). Group-level p-values are again FDR-corrected
+across the 7 microstates. The analysis is run separately for all tasks pooled
+(maximizing statistical power) and for the feedback task only (most relevant
+to the neurofeedback application).
+
+Confirmatory analysis — Linear Mixed Model (LMM). For each microstate,
+a LMM is fitted using the statsmodels MixedLM implementation. The fixed-effects
+structure is T-hat ~ pda_sign + C(task) (all-tasks model) or T-hat ~ pda_sign
+(feedback-only model), where pda_sign is binary (1 = PDA-positive, 0 =
+PDA-negative). The random-effects structure includes a per-subject random
+intercept and random slope for pda_sign, estimated by restricted maximum
+likelihood (REML). The random slope quantifies between-subject heterogeneity
+in the microstate-PDA relationship. If the random-slope model fails to
+converge, a random-intercept-only fallback is used. An additional interaction
+model (T-hat ~ pda_sign * C(task)) tests whether the microstate-PDA
+relationship differs across tasks (rest, shortrest, feedback), probing whether
+neurofeedback training modulates microstate selectivity. The key output is the
+fixed-effect coefficient for pda_sign (beta, in T-hat units) with 95%
+confidence intervals, reported alongside FDR-corrected p-values across the 7
+microstates.
+
+The LMM provides advantages over the two-stage t-test by: (1) modelling
+within-subject random slopes to capture individual differences in the
+microstate-PDA relationship; (2) including task as a fixed covariate to
+control for task-dependent mean shifts; and (3) enabling a formal interaction
+test for task-modulated microstate selectivity. The two-stage approach is
+retained as the primary analysis because it is transparent, computationally
+robust, and directly comparable to standard neuroimaging random-effects models.
+
+Combination analysis — Logistic regression. To assess whether a linear
+combination of all 7 T-hat features predicts PDA sign more accurately than
+any individual microstate, a logistic regression classifier (L2 penalty,
+C = 1, class-weight balanced to handle PDA+/PDA- imbalance) is trained using
+leave-one-run-out cross-validation within the feedback task runs. Features are
+z-scored within each training fold. Classification performance is quantified
+by the area under the receiver operating characteristic curve (AUC), and
+tested against chance (AUC = 0.5) at the group level using a one-sample
+t-test. The mean classifier weights across LORO folds indicate which
+microstates contribute most to the discriminant boundary, complementing the
+univariate t-test and LMM results.
+
+Outputs: individual_stats_250Hz.csv (per-subject t-statistics, p-values,
+Cohen's d, FDR flags), group_stats_250Hz.csv (group t-test and LMM fixed
+effects with 95% CI, interaction p-values), combination_logistic_250Hz.csv
+(per-subject AUC, accuracy, discriminant weights), and group_stats_250Hz.png
+(Panel A: two-stage t-test bar chart; Panel B: LMM forest plot).
+
+References:
+Benjamini Y, Hochberg Y (1995). Controlling the false discovery rate: a
+practical and powerful approach to multiple testing. Journal of the Royal
+Statistical Society Series B, 57(1), 289-300.
+https://doi.org/10.1111/j.2517-6161.1995.tb02031.x
+
+Bates D et al. (2015). Fitting linear mixed-effects models using lme4.
+Journal of Statistical Software, 67(1), 1-48.
+https://doi.org/10.18637/jss.v067.i01
+
+Friston KJ et al. (1999). How many subjects constitute a study?
+NeuroImage, 10(1), 1-5. https://doi.org/10.1006/nimg.1999.0439
+
+
 Full Reference List
 
 Allen PJ, Josephs O, Turner R (2000). A method for removing imaging
