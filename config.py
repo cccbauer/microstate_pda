@@ -32,11 +32,6 @@ FIGURES_DIR = LOCAL_BASE / "figures"
 LOGS_DIR    = LOCAL_BASE / "logs"
 MODELS_DIR  = LOCAL_BASE / "models"
 RESULTS_DIR = LOCAL_BASE / "results"
-SCRIPTS_DIR    = LOCAL_BASE / "scripts"
-FIGURES_DIR    = LOCAL_BASE / "figures"
-LOGS_DIR       = LOCAL_BASE / "logs"
-MODELS_DIR     = LOCAL_BASE / "models"
-RESULTS_DIR    = LOCAL_BASE / "results"
 
 # ── Subjects ───────────────────────────────────────────────
 SUBJECTS = [
