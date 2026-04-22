@@ -8,7 +8,7 @@ __pycache__/
 *.fif
 *.log
 logs/
-results/
+# results/ is tracked — large data files excluded via results/.gitignore
 models/
 figures/
 microstates/
