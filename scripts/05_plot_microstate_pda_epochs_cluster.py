@@ -26,6 +26,7 @@ PLOTS_ROOT      = Path("/projects/swglab/data/DMNELF/derivatives/microstate_pda_
 PLOTS_ROOT.mkdir(parents=True, exist_ok=True)
 
 # ── Config ────────────────────────────────────────────────
+OVERWRITE     = True
 SUBJECTS      = ['sub-dmnelf001', 'sub-dmnelf004', 'sub-dmnelf005', 'sub-dmnelf006', 'sub-dmnelf007', 'sub-dmnelf008', 'sub-dmnelf009', 'sub-dmnelf010', 'sub-dmnelf011', 'sub-dmnelf1001', 'sub-dmnelf1002', 'sub-dmnelf1003']
 MISSING_RUNS  = {'sub-dmnelf1002': [('rest', '02')], 'sub-dmnelf1003': [('feedback', '04')]}
 SFREQ_TAG     = "250Hz"
@@ -59,6 +60,7 @@ print("Labels: " + str(labels))
 
 # ── Load MNE info matching templates channel count ────────
 # templates.shape[1] is authoritative — find a FIF with the same n_ch
+# Always re-apply standard_1020 montage so positions are guaranteed.
 def _load_raw_channels(subject, tag):
     fif_path = (EEG_ROOT / subject / "ses-dmnelf" / "eeg"
                / (subject + "_ses-dmnelf_task-rest_run-01_desc-preproc"
@@ -70,41 +72,54 @@ def _load_raw_channels(subject, tag):
         raw = mne.io.read_raw_fif(str(fif_path), preload=False, verbose=False)
     drop = [ch for ch in raw.ch_names
             if any(x in ch.upper()
-                   for x in ("ECG","EKG","EMG","EOG","STIM","STATUS"))]
+                   for x in ("ECG","EKG","EMG","EOG","STIM","STATUS","TP9","TP10"))]
     if drop:
         raw.drop_channels(drop)
+    # Always set standard_1020 so electrode positions are present
+    try:
+        montage = mne.channels.make_standard_montage("standard_1020")
+        raw.set_montage(montage, on_missing="ignore", verbose=False)
+    except Exception as e:
+        print("  montage warning: " + str(e))
     return raw
 
 mne_info  = None
 _n_tpl    = templates.shape[1]
+print("Templates n_ch: " + str(_n_tpl))
 for _sub in SUBJECTS:
     for _tag in ("500Hz", "250Hz"):
         _raw = _load_raw_channels(_sub, _tag)
         if _raw is None:
             continue
+        print("  FIF " + _sub + " (" + _tag + ") n_ch=" + str(len(_raw.ch_names)))
         if len(_raw.ch_names) == _n_tpl:
             mne_info = _raw.info
-            print("MNE info: " + _sub + " (" + _tag + ")"
-                  + "  n_ch=" + str(len(_raw.ch_names)) + " matches templates")
+            print("MNE info SET: " + _sub + " (" + _tag + ")"
+                  + "  n_ch=" + str(len(_raw.ch_names)))
             break
     if mne_info is not None:
         break
 if mne_info is None:
-    print("WARNING: No FIF with " + str(_n_tpl) + " ch found — topomaps blank")
+    print("WARNING: No FIF with " + str(_n_tpl) + " ch found — topomaps will be blank")
 
 # ── Plotting helpers ──────────────────────────────────────
 def make_topomap(ax, values, info, title="", cmap="RdBu_r", vlim=None):
     if info is None:
         ax.text(0.5, 0.5, "no info", ha="center", va="center",
-                transform=ax.transAxes, color="gray", fontsize=8)
+                transform=ax.transAxes, color="gray", fontsize=9)
         ax.set_title(title, fontsize=8)
         return
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        mne.viz.plot_topomap(
-            values, info, axes=ax, show=False,
-            cmap=cmap, vlim=vlim, contours=4
-        )
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            mne.viz.plot_topomap(
+                values, info, axes=ax, show=False,
+                cmap=cmap, vlim=vlim, contours=4
+            )
+    except Exception as _e:
+        ax.text(0.5, 0.5, "ERR: " + str(_e)[:60], ha="center", va="center",
+                transform=ax.transAxes, color="red", fontsize=7, wrap=True)
+        print("  topomap error [" + title + "]: " + str(_e))
     ax.set_title(title, fontsize=8)
 
 def make_bar_chart(ax, mean_pos, mean_neg, labels, title="",
@@ -184,7 +199,7 @@ for subject in SUBJECTS:
     all_subjects_mean_pos.append(mean_pos_all)
     all_subjects_mean_neg.append(mean_neg_all)
 
-    if _out_png.exists():
+    if _out_png.exists() and not OVERWRITE:
         print("  EXISTS (skip plot, accumulated for group)")
         continue
 

@@ -21,9 +21,12 @@ STEPS = [
     ("00c", "00c_add_personal_parcels.py",   []),
     ("00d", "00d_extract_personal_pda.py",   []),
     ("01",  "01_fit_microstates.py",         []),
-    ("02",  "02_tess_features.py",           []),
-    ("03",  "03_compute_pda.py",             []),
-    ("04",  "04_train_decoder.py",           []),
+    ("02",  "02_tess_features.py",           ["--overwrite"]),
+    ("03",  "03_compute_pda.py",             ["--overwrite"]),
+    ("04",  "04_train_decoder.py",           ["--overwrite"]),
+    ("05",  "05_plot_microstate_pda_epochs.py", ["--overwrite"]),
+    ("05b", "05b_stats_microstate_pda.py",      []),
+    ("06",  "06_cen_pda_proxy.py",              []),
 ]
 
 parser = argparse.ArgumentParser()

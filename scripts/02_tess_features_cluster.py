@@ -50,7 +50,7 @@ def load_eeg(fif_path):
                                verbose=False)
     drop = [ch for ch in raw.ch_names
             if any(x in ch.upper() for x in
-                   ("ECG","EKG","EMG","EOG","STIM","STATUS"))]
+                   ("ECG","EKG","EMG","EOG","STIM","STATUS","TP9","TP10"))]
     if drop:
         raw.drop_channels(drop)
     ref = float(np.abs(raw.get_data().mean(axis=0)).mean())

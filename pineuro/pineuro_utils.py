@@ -262,7 +262,7 @@ def check_platform_requirements() -> list[str]:
     >>> for warning in warnings:
     ...     print(f"Warning: {warning}")
     """
-    from . import config
+    from .. import config
 
     warnings = []
     platform = config.get_platform()

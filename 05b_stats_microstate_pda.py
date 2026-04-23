@@ -1,5 +1,5 @@
-# 06_stats_microstate_pda.py
-# Run locally: python 06_stats_microstate_pda.py
+# 05b_stats_microstate_pda.py
+# Run locally: python 05b_stats_microstate_pda.py
 # Deploys cluster script, submits SLURM job.
 #
 # What it does on the cluster:
@@ -32,7 +32,7 @@ from config import (
 # ── Cluster script ──────────────────────────────────────────────
 lines = [
     '#!/usr/bin/env python3',
-    '"""06_stats_microstate_pda_cluster.py',
+    '"""05b_stats_microstate_pda_cluster.py',
     'Two-stage t-test (primary) + LMM (confirmatory) + logistic combination.',
     '"""',
     'import sys',
@@ -573,7 +573,7 @@ lines = [
 ]
 
 # ── Save cluster script ─────────────────────────────────────────
-script_name = "06_stats_microstate_pda_cluster.py"
+script_name = "05b_stats_microstate_pda_cluster.py"
 script_path = LOCAL_BASE / "scripts" / script_name
 script_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -591,7 +591,7 @@ except py_compile.PyCompileError as e:
 
 # ── SLURM script ───────────────────────────────────────────────
 job_name    = "ms_pda_stats"
-sbatch_name = "06_stats_microstate_pda.sh"
+sbatch_name = "05b_stats_microstate_pda.sh"
 sbatch_path = LOCAL_BASE / "scripts" / sbatch_name
 
 sbatch_lines = [

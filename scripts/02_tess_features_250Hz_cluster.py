@@ -25,7 +25,7 @@ TR            = 1.2
 TR_SAMPLES    = 300
 N_MICROSTATES = 7
 MISSING_RUNS  = {'sub-dmnelf1002': [('rest', '02')], 'sub-dmnelf1003': [('feedback', '04')]}
-OVERWRITE     = False
+OVERWRITE     = True
 
 TASK_RUNS = {
     "rest":      ["01", "02"],
@@ -49,7 +49,7 @@ def load_eeg(fif_path):
                                verbose=False)
     drop = [ch for ch in raw.ch_names
             if any(x in ch.upper() for x in
-                   ("ECG","EKG","EMG","EOG","STIM","STATUS"))]
+                   ("ECG","EKG","EMG","EOG","STIM","STATUS","TP9","TP10"))]
     if drop:
         raw.drop_channels(drop)
     if raw.info["sfreq"] != SFREQ:

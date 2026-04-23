@@ -8,4 +8,4 @@
 #SBATCH --mem=32G
 #SBATCH --account=suewhit
 
-/home/cccbauer/.conda/envs/eeg_preproc/bin/python /projects/swglab/data/DMNELF/analysis/MNE/jupyter/microstate_pda_v3/scripts/04_train_decoder_250Hz_cluster.py
+/home/cccbauer/.conda/envs/eeg_preproc/bin/python /projects/swglab/data/DMNELF/analysis/MNE/jupyter/microstate_pda_v3/scripts/04_train_decoder_250Hz_cluster.py --overwrite

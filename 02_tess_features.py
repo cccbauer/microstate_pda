@@ -90,7 +90,7 @@ lines = [
     '                               verbose=False)',
     '    drop = [ch for ch in raw.ch_names',
     '            if any(x in ch.upper() for x in',
-    '                   ("ECG","EKG","EMG","EOG","STIM","STATUS"))]',
+    '                   ("ECG","EKG","EMG","EOG","STIM","STATUS","TP9","TP10"))]',
     '    if drop:',
     '        raw.drop_channels(drop)',
     '    if raw.info["sfreq"] != SFREQ:',
