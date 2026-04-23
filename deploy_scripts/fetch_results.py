@@ -14,10 +14,11 @@ import argparse
 import subprocess
 import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils import run_ssh
 from config import CLUSTER_BASE, CLUSTER_SSH
 
-HERE = Path(__file__).parent
+HERE    = Path(__file__).parent.parent   # repo root
 RESULTS = HERE / "results"
 
 # ── Cluster sources → local destinations ───────────────────────
@@ -54,6 +55,41 @@ SOURCES = {
             },
         ],
     },
+    "08": {
+        "desc": "Personalized decoder: rest→feedback (step 08)",
+        "items": [
+            {
+                "remote": CLUSTER_BASE + "/results/personalized_decoder/*.csv",
+                "local":  RESULTS / "personalized_decoder",
+                "flat":   False,
+            },
+            {
+                "remote": CLUSTER_BASE + "/results/personalized_decoder/*.png",
+                "local":  RESULTS / "personalized_decoder",
+                "flat":   False,
+            },
+            {
+                "remote": CLUSTER_BASE + "/results/personalized_decoder/timeseries/*.png",
+                "local":  RESULTS / "personalized_decoder" / "timeseries",
+                "flat":   False,
+            },
+        ],
+    },
+    "07": {
+        "desc": "Decomposed network proxy + transfer CV: rest→feedback (step 07)",
+        "items": [
+            {
+                "remote": CLUSTER_BASE + "/results/network_proxy/*.csv",
+                "local":  RESULTS / "network_proxy",
+                "flat":   False,
+            },
+            {
+                "remote": CLUSTER_BASE + "/results/network_proxy/*.png",
+                "local":  RESULTS / "network_proxy",
+                "flat":   False,
+            },
+        ],
+    },
 }
 
 
@@ -80,7 +116,7 @@ def scp_glob(remote_glob, local_dir, dry_run=False):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--step", choices=["05", "06"], default=None,
+    parser.add_argument("--step", choices=["05", "06", "07", "08"], default=None,
                         help="Fetch only this step (default: all)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print commands without executing")
