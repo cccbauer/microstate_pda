@@ -9,6 +9,7 @@ Usage:
     python run_pipeline.py --start 00b   # resume from a specific step
 """
 import argparse
+import os
 import subprocess
 import sys
 import time
@@ -16,17 +17,17 @@ from datetime import datetime
 from pathlib import Path
 
 STEPS = [
-    ("00",  "00_extract_difumo.py",          []),
-    ("00b", "00b_extract_personal_masks.py", []),
-    ("00c", "00c_add_personal_parcels.py",   []),
-    ("00d", "00d_extract_personal_pda.py",   []),
-    ("01",  "01_fit_microstates.py",         []),
-    ("02",  "02_tess_features.py",           ["--overwrite"]),
-    ("03",  "03_compute_pda.py",             ["--overwrite"]),
-    ("04",  "04_train_decoder.py",           ["--overwrite"]),
-    ("05",  "05_plot_microstate_pda_epochs.py", ["--overwrite"]),
-    ("05b", "05b_stats_microstate_pda.py",      []),
-    ("06",  "06_cen_pda_proxy.py",              []),
+    ("00",  "deploy_scripts/00_extract_difumo.py",          []),
+    ("00b", "deploy_scripts/00b_extract_personal_masks.py", []),
+    ("00c", "deploy_scripts/00c_add_personal_parcels.py",   []),
+    ("00d", "deploy_scripts/00d_extract_personal_pda.py",   []),
+    ("01",  "deploy_scripts/01_fit_microstates.py",         []),
+    ("02",  "deploy_scripts/02_tess_features.py",           ["--overwrite"]),
+    ("03",  "deploy_scripts/03_compute_pda.py",             ["--overwrite"]),
+    ("04",  "deploy_scripts/04_train_decoder.py",           ["--overwrite"]),
+    ("05",  "deploy_scripts/05_plot_microstate_pda_epochs.py", ["--overwrite"]),
+    ("05b", "deploy_scripts/05b_stats_microstate_pda.py",      []),
+    ("06",  "deploy_scripts/06_cen_pda_proxy.py",              []),
 ]
 
 parser = argparse.ArgumentParser()
@@ -57,8 +58,10 @@ for tag, script, extra_args in steps_to_run:
     print(f"[{tag}]  {script}  —  {datetime.now():%H:%M:%S}")
     print("=" * 60)
 
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(here) + os.pathsep + env.get("PYTHONPATH", "")
     cmd = [sys.executable, str(here / script)] + extra_args
-    result = subprocess.run(cmd, cwd=str(here))
+    result = subprocess.run(cmd, cwd=str(here), env=env)
 
     elapsed = time.time() - t0
     if result.returncode != 0:
